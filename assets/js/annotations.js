@@ -4,6 +4,17 @@ function renderAnnotations() {
   if (!commentsList) return;
   commentsList.innerHTML = '';
 
+  const hasAnnotations = annotations.length > 0;
+  if (exportAllBtn) {
+    exportAllBtn.disabled = !hasAnnotations;
+  }
+
+  if (!hasAnnotations) {
+    renderEmptyState();
+    renderHighlights();
+    return;
+  }
+
   annotations.forEach((ann) => {
     const li = document.createElement('li');
     li.className = 'comment-highlight';
@@ -105,6 +116,15 @@ function renderAnnotations() {
   renderHighlights();
 }
 
+function renderEmptyState() {
+  if (!commentsList) return;
+  const emptyMessage = document.createElement('p');
+  emptyMessage.id = 'no-comments';
+  emptyMessage.className = 'text-gray-400 italic text-sm';
+  emptyMessage.textContent = 'No annotations added yet. Select text in the PDF to start annotating.';
+  commentsList.appendChild(emptyMessage);
+}
+
 function renderHighlights() {
   if (!pdfContainer) return;
 
@@ -159,4 +179,15 @@ function exportAllComments() {
 
   const allText = lines.join('\n\n');
   copyToClipboard(allText);
+
+  if (exportAllBtn) {
+    const label = exportAllBtn.querySelector('span');
+    if (label) {
+      const original = label.textContent;
+      label.textContent = 'Copied!';
+      setTimeout(() => {
+        label.textContent = original;
+      }, 1500);
+    }
+  }
 }

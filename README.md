@@ -49,6 +49,43 @@ Then open http://localhost:5500/.
 VS Code Live Server:
 - Install the "Live Server" extension, open `index.html`, and click "Go Live".
 
+Option C — Deploy on Vercel (Static)
+You can deploy this folder directly as a static site. No framework build needed.
+
+1. Ensure `vercel.json` exists (already added):
+```json
+{
+	"version": 2,
+	"framework": null,
+	"routes": [
+		{ "handle": "filesystem" },
+		{ "src": "/(.*)", "dest": "/index.html" }
+	],
+	"cache": true
+}
+```
+2. Initialize (optional if already a git repo):
+```ps1
+cd d:\DevSpace\pdf_comments\pdf_-annotations_text_highlight
+git init
+git add .
+git commit -m "chore: initial"
+```
+3. Deploy (interactive):
+```ps1
+npm i -g vercel
+vercel
+```
+4. Production deploy:
+```ps1
+vercel --prod
+```
+
+Notes:
+- `framework: null` tells Vercel to treat this as plain static assets.
+- The route fallback sends any path to `index.html` (useful if you later add hash routing or simple client-side navigation).
+- For custom domain mapping, configure in the Vercel dashboard after first deploy.
+
 ## Folder Structure
 
 - `index.html` — Main app file (UI, logic, and PDF.js integration)
@@ -77,4 +114,5 @@ Comments/Questions:
 - This tool uses CDN-hosted PDF.js and Tailwind CSS; an internet connection is required.
 - Selections are cleaned up to merge line breaks and hyphenated words for better readability.
 - All data is in-memory; refreshing the page clears annotations. If you need persistence (localStorage or backend), I can add it.
+- For Vercel static hosting, no changes are needed beyond the provided `vercel.json`.
 - If `assets/preview.png` is missing, the preview image will render as a broken link—place a PNG screenshot there after first run.

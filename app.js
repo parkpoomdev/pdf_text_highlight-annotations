@@ -201,6 +201,33 @@ async function handleExportFile(event) {
     await buildExportLayout(file);
 }
 
+async function downloadExportPdf() {
+    if (!exportLayoutGrid) return;
+    const spreads = Array.from(exportLayoutGrid.querySelectorAll('.export-spread'));
+    if (!spreads.length) return;
+
+    const jspdfLib = window.jspdf || window.jsPDF || {};
+    const jsPDF = jspdfLib.jsPDF || jspdfLib.jsPDF;
+    if (!jsPDF) return;
+    const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+    for (let i = 0; i < spreads.length; i++) {
+        const spread = spreads[i];
+        const canvas = await html2canvas(spread, {
+            scale: 2,
+            useCORS: true,
+            backgroundColor: '#ffffff',
+            logging: false,
+        });
+        const imgData = canvas.toDataURL('image/png');
+        if (i > 0) {
+            pdf.addPage();
+        }
+        pdf.addImage(imgData, 'PNG', 0, 0, 210, 297);
+    }
+
+    pdf.save('export-layout.pdf');
+}
+
 async function buildExportLayout(file) {
     if (!exportLayoutGrid) return;
     if (!isPdfFile(file)) {
@@ -213,17 +240,17 @@ async function buildExportLayout(file) {
         const arrayBuffer = await file.arrayBuffer();
         const pdfData = new Uint8Array(arrayBuffer);
         const doc = await pdfjsLib.getDocument({ data: pdfData }).promise;
-        for (let spreadStart = 1; spreadStart <= doc.numPages; spreadStart += 2) {
+        for (let spreadStart = 1; spreadStart <= doc.numPages; spreadStart += 3) {
             const spread = document.createElement('section');
             spread.className = 'export-spread bg-white border border-indigo-100 rounded-3xl shadow-xl space-y-6';
             const spreadTitle = document.createElement('div');
             spreadTitle.className = 'flex items-center justify-between text-xs uppercase tracking-wide text-gray-500';
-            const secondPage = Math.min(spreadStart + 1, doc.numPages);
-            const titleLabel = spreadStart === secondPage ? `Page ${spreadStart}` : `Page ${spreadStart} & ${secondPage}`;
+            const lastPage = Math.min(spreadStart + 2, doc.numPages);
+            const titleLabel = spreadStart === lastPage ? `Page ${spreadStart}` : `Pages ${spreadStart} - ${lastPage}`;
             spreadTitle.innerHTML = `<span class="font-semibold text-indigo-600">${titleLabel}</span><span>Export spread</span>`;
             spread.appendChild(spreadTitle);
 
-            const rows = [spreadStart, spreadStart + 1].filter(pageNum => pageNum <= doc.numPages);
+            const rows = [spreadStart, spreadStart + 1, spreadStart + 2].filter(pageNum => pageNum <= doc.numPages);
             for (const pageNum of rows) {
                 const row = await createExportRow(doc, pageNum);
                 spread.appendChild(row);
@@ -262,6 +289,7 @@ async function createExportRow(pdfDocument, pageNumber) {
     canvas.style.width = '100%';
     canvas.style.height = '100%';
     canvas.style.display = 'block';
+    canvas.dataset.exportCanvas = `page-${pageNumber}`;
     previewWrapper.appendChild(canvas);
     previewCol.appendChild(previewWrapper);
 

@@ -134,6 +134,12 @@ body {
     width: 100%;
 }
 
+.export-print-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
 .comment-card {
     position: relative;
     padding: 1.5rem;

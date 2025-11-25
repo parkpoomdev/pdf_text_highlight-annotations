@@ -2,14 +2,19 @@
 
 แอปนี้รวมเครื่องมือเพิ่มคอมเมนต์และจัดเตรียมหน้าสำหรับพิมพ์ในสไตล์ A4 หนึ่งหน้าแสดง 3 สไลด์ พร้อมช่องจดบันทึกที่วางข้างกัน
 
-เว่น ช่องว่าง [ ใส่ภ่าพประกอบตรงนี้ เดี๋ยวฉันจะนำไใส่เอง ]
+
 
 ## Tab Guide
 
 - **PDF Comment** – อัปโหลด PDF, เลือกข้อความบนหน้า แล้วกด “Add Comment” เพื่อเก็บคลิปหรือคำถามพร้อมตอบกลับใต้คอมเมนต์นั้น
+<img width="1294" height="879" alt="image" src="https://github.com/user-attachments/assets/066fde56-78d4-4f80-b963-bdb5264fbdf1" />
 - **Text Reply** – มุมมองสำหรับร่างคำตอบจากไฮไลต์ที่คัดไว้แล้ว ดู “Text Reply” เพื่อสร้างเนื้อหาเพิ่มเติมใน iframe เดียวกัน
+<img width="1291" height="696" alt="image" src="https://github.com/user-attachments/assets/d536955f-9c00-49fc-8da3-7d31ea98c8d2" />
 - **Paste Image** – วางภาพจากคลิปบอร์ด (Ctrl+V) แล้วกดเลือกโฟลเดอร์เพื่อบันทึกอัตโนมัติ เหมาะสำหรับแคปหน้าจอเร็วๆ
+<img width="1275" height="756" alt="image" src="https://github.com/user-attachments/assets/e9c59c6c-3733-402a-82a8-505c41507aaa" />
 - **Export Layout** – แสดงแต่ละชุดสไลด์สามหน้า (PDF preview) พร้อม comment card รูปสี่เหลี่ยม ซึ่งพร้อมส่งออกเป็น PDF A4 โดยคลิก “Export as PDF”
+<img width="905" height="842" alt="image" src="https://github.com/user-attachments/assets/4ba42451-9e05-45f2-87f9-524b4477dacd" />
+
 
 ## Quick Start
 

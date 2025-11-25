@@ -16,6 +16,9 @@ const sectionTabs = document.querySelectorAll('[data-section-target]');
 const pdfSection = document.getElementById('pdf-section');
 const textSection = document.getElementById('text-section');
 const pasteSection = document.getElementById('paste-section');
+const exportSection = document.getElementById('export-section');
+const exportLayoutGrid = document.getElementById('export-layout-grid');
+const exportLoader = document.getElementById('export-loader');
 const chooseDirBtn = document.getElementById('choose-dir-btn');
 const saveDirLabel = document.getElementById('save-dir-label');
 const pasteStatus = document.getElementById('paste-status');
@@ -26,14 +29,19 @@ const pastedMeta = document.getElementById('pasted-meta');
 
 let currentSection = 'pdf';
 let saveDirectoryHandle = null;
+const sectionMap = {
+    pdf: pdfSection,
+    text: textSection,
+    paste: pasteSection,
+    export: exportSection,
+};
 
 function switchSection(target) {
     currentSection = target;
-    if (pdfSection && textSection && pasteSection) {
-        pdfSection.classList.toggle('hidden', target !== 'pdf');
-        textSection.classList.toggle('hidden', target !== 'text');
-        pasteSection.classList.toggle('hidden', target !== 'paste');
-    }
+    Object.entries(sectionMap).forEach(([name, section]) => {
+        if (!section) return;
+        section.classList.toggle('hidden', name !== target);
+    });
     sectionTabs.forEach(btn => {
         const isActive = btn.dataset.sectionTarget === target;
         btn.classList.toggle('active', isActive);
@@ -185,6 +193,87 @@ function handleFileSelect(event) {
     const file = event.target.files && event.target.files[0];
     if (!file) return;
     processPdfFile(file);
+}
+
+async function handleExportFile(event) {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+    await buildExportLayout(file);
+}
+
+async function buildExportLayout(file) {
+    if (!exportLayoutGrid) return;
+    if (!isPdfFile(file)) {
+        exportLayoutGrid.innerHTML = `<p class="text-sm text-red-600">Please upload a valid PDF file.</p>`;
+        return;
+    }
+    exportLayoutGrid.innerHTML = '';
+    exportLoader?.classList.remove('hidden');
+    try {
+        const arrayBuffer = await file.arrayBuffer();
+        const pdfData = new Uint8Array(arrayBuffer);
+        const doc = await pdfjsLib.getDocument({ data: pdfData }).promise;
+        for (let spreadStart = 1; spreadStart <= doc.numPages; spreadStart += 2) {
+            const spread = document.createElement('section');
+            spread.className = 'export-spread bg-white border border-indigo-100 rounded-3xl shadow-xl space-y-6';
+            const spreadTitle = document.createElement('div');
+            spreadTitle.className = 'flex items-center justify-between text-xs uppercase tracking-wide text-gray-500';
+            const secondPage = Math.min(spreadStart + 1, doc.numPages);
+            const titleLabel = spreadStart === secondPage ? `Page ${spreadStart}` : `Page ${spreadStart} & ${secondPage}`;
+            spreadTitle.innerHTML = `<span class="font-semibold text-indigo-600">${titleLabel}</span><span>Export spread</span>`;
+            spread.appendChild(spreadTitle);
+
+            const rows = [spreadStart, spreadStart + 1].filter(pageNum => pageNum <= doc.numPages);
+            for (const pageNum of rows) {
+                const row = await createExportRow(doc, pageNum);
+                spread.appendChild(row);
+            }
+
+            exportLayoutGrid.appendChild(spread);
+        }
+    } catch (error) {
+        console.error('Export layout error', error);
+        const message = error?.message ? escapeForHtml(error.message) : 'Try another PDF.';
+        exportLayoutGrid.innerHTML = `<p class="text-sm text-red-600">Unable to build layout: ${message}</p>`;
+    } finally {
+        exportLoader?.classList.add('hidden');
+    }
+}
+
+async function createExportRow(pdfDocument, pageNumber) {
+    const row = document.createElement('div');
+    row.className = 'export-row grid gap-4 lg:gap-6 items-stretch grid-cols-1 lg:grid-cols-[70%_30%]';
+    const page = await pdfDocument.getPage(pageNumber);
+    const viewport = page.getViewport({ scale: 1 });
+
+    const previewCol = document.createElement('div');
+    previewCol.className = 'space-y-2';
+    previewCol.innerHTML = `<p class="text-xs uppercase tracking-wide text-gray-500 font-semibold">Page ${pageNumber}</p>`;
+
+    const previewWrapper = document.createElement('div');
+    previewWrapper.className = 'rounded-2xl border border-gray-200 overflow-hidden shadow-inner bg-gray-50';
+    previewWrapper.style.aspectRatio = `${viewport.width} / ${viewport.height}`;
+    previewWrapper.style.minHeight = '280px';
+    previewWrapper.style.display = 'block';
+
+    const canvas = document.createElement('canvas');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
+    canvas.style.display = 'block';
+    previewWrapper.appendChild(canvas);
+    previewCol.appendChild(previewWrapper);
+
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+
+    const commentCol = document.createElement('div');
+    commentCol.className = 'comment-card';
+    commentCol.innerHTML = `<p class="text-xs uppercase tracking-wide text-indigo-600 font-semibold">Comments</p>`;
+
+    row.appendChild(previewCol);
+    row.appendChild(commentCol);
+    return row;
 }
 
 // Replaced: renderPDF was corrupted by nested functions. Provide clean implementation.

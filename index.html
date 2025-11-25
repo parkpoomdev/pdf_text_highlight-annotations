@@ -22,6 +22,7 @@
                     <button data-section-target="pdf" class="pill-tab active px-4 py-2 rounded-full text-sm font-semibold text-indigo-800">PDF Comment</button>
                     <button data-section-target="text" class="pill-tab px-4 py-2 rounded-full text-sm font-semibold text-indigo-700">Text Reply</button>
                     <button data-section-target="paste" class="pill-tab px-4 py-2 rounded-full text-sm font-semibold text-indigo-700">Paste Image</button>
+                    <button data-section-target="export" class="pill-tab px-4 py-2 rounded-full text-sm font-semibold text-indigo-700">Export Layout</button>
                 </div>
             </div>
         </div>
@@ -116,6 +117,38 @@
         </div>
     </div>
 
+    </section>
+
+    <section id="export-section" class="page-section hidden">
+        <header class="bg-white text-gray-900 shadow-lg p-4 rounded-xl border border-indigo-100">
+            <div class="max-w-7xl mx-auto flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                    <p class="text-xs tracking-wide text-indigo-600 font-semibold uppercase">Export Layout</p>
+                    <h2 class="text-xl font-bold">Prepare printable pages with comments</h2>
+                    <p class="text-sm text-gray-600 mt-1">Each export page pairs a PDF page preview with a square comment-pad for your notes.</p>
+                </div>
+                <label for="export-pdf-file" class="cursor-pointer bg-indigo-500 hover:bg-indigo-600 text-white font-semibold py-2 px-4 rounded-lg transition duration-200 flex items-center space-x-2">
+                    <span>Upload PDF</span>
+                    <input type="file" id="export-pdf-file" accept="application/pdf" class="hidden" onchange="handleExportFile(event)">
+                </label>
+            </div>
+        </header>
+
+        <main class="max-w-7xl mx-auto p-4 lg:p-6 relative">
+            <div id="export-loader" class="text-center p-8 text-gray-500 hidden">
+                <svg class="animate-spin h-8 w-8 text-indigo-500 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <p class="mt-2">Generating export layout…</p>
+            </div>
+
+            <div id="export-layout-grid" class="space-y-10 mt-6 min-h-[280px]">
+                <div class="p-6 border border-dashed border-indigo-200 rounded-2xl text-sm text-indigo-600 bg-indigo-50/70">
+                    Upload a PDF to render the export-ready preview. Each export page shows two PDF page cadres with dedicated square comment sections.
+                </div>
+            </div>
+        </main>
     </section>
 
     <section id="text-section" class="page-section hidden">

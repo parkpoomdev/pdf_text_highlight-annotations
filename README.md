@@ -1,10 +1,10 @@
-# PDF Annotator
+# PDF Annotator with Export Layout
 
-A lightweight, client-side PDF annotation tool built with PDF.js and Tailwind CSS. It lets you upload a PDF, select text directly on the rendered pages, and save annotations with replies/notes. Annotations can be copied individually or exported all at once to the clipboard.
+A lightweight, client-side PDF annotation and export workspace built with PDF.js and Tailwind CSS. Upload PDFs, annotate text with threaded replies, and export a printable layout (three slides + comments per A4 page).
 
 ## Preview
 
-Below is a preview of the UI:
+Below is a preview of the main annotator plus the export layout view:
 <img width="1391" height="723" alt="image" src="https://github.com/user-attachments/assets/62eaf99b-3ba1-4ee9-be88-696213219514" />
 
 
@@ -17,6 +17,8 @@ Below is a preview of the UI:
 - "Add Comment" floating action when text is selected
 - Manage a list of annotations with reply threads
 - Copy a single annotation or export all annotations to clipboard
+- Export Layout tab renders three slides plus a comment block per A4 spread
+- Export the layout as a PDF using html2canvas + jsPDF, then print from the downloaded file
 - Clean typography and responsive layout (Tailwind CSS)
 
 ## Quick Start
@@ -116,3 +118,9 @@ Comments/Questions:
 - All data is in-memory; refreshing the page clears annotations. If you need persistence (localStorage or backend), I can add it.
 - For Vercel static hosting, no changes are needed beyond the provided `vercel.json`.
 - If `assets/preview.png` is missing, the preview image will render as a broken link—place a PNG screenshot there after first run.
+
+## Export Layout Workflow
+
+- After uploading a PDF, switch to the Export Layout tab to render spreads that combine three PDF pages with the comment card for export.
+- Click **Export as PDF** to capture each spread via `html2canvas` and bundle them into an A4-formatted PDF powered by `jsPDF`.
+- Save the downloaded PDF and print it locally, or adjust it in another editor before printing.

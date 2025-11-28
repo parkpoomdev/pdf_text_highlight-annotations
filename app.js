@@ -209,7 +209,15 @@ async function downloadExportPdf() {
     const jspdfLib = window.jspdf || window.jsPDF || {};
     const jsPDF = jspdfLib.jsPDF || jspdfLib.jsPDF;
     if (!jsPDF) return;
-    const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+    const pdf = new jsPDF({ 
+        unit: 'mm', 
+        format: 'a4', 
+        orientation: 'portrait',
+        compress: true
+    });
+    // Set margins to 0
+    pdf.setProperties({ margins: { top: 0, bottom: 0, left: 0, right: 0 } });
+    
     for (let i = 0; i < spreads.length; i++) {
         const spread = spreads[i];
         const canvas = await html2canvas(spread, {
@@ -217,12 +225,14 @@ async function downloadExportPdf() {
             useCORS: true,
             backgroundColor: '#ffffff',
             logging: false,
+            removeContainer: true,
         });
         const imgData = canvas.toDataURL('image/png');
         if (i > 0) {
             pdf.addPage();
         }
-        pdf.addImage(imgData, 'PNG', 0, 0, 210, 297);
+        // Full A4 size: 210mm x 297mm with 0mm margins
+        pdf.addImage(imgData, 'PNG', 0, 0, 210, 297, undefined, 'FAST');
     }
 
     pdf.save('export-layout.pdf');
@@ -242,13 +252,9 @@ async function buildExportLayout(file) {
         const doc = await pdfjsLib.getDocument({ data: pdfData }).promise;
         for (let spreadStart = 1; spreadStart <= doc.numPages; spreadStart += 3) {
             const spread = document.createElement('section');
-            spread.className = 'export-spread bg-white border border-indigo-100 rounded-3xl shadow-xl space-y-6';
-            const spreadTitle = document.createElement('div');
-            spreadTitle.className = 'flex items-center justify-between text-xs uppercase tracking-wide text-gray-500';
-            const lastPage = Math.min(spreadStart + 2, doc.numPages);
-            const titleLabel = spreadStart === lastPage ? `Page ${spreadStart}` : `Pages ${spreadStart} - ${lastPage}`;
-            spreadTitle.innerHTML = `<span class="font-semibold text-indigo-600">${titleLabel}</span><span>Export spread</span>`;
-            spread.appendChild(spreadTitle);
+            spread.className = 'export-spread bg-white';
+            spread.style.margin = '0';
+            spread.style.padding = '0';
 
             const rows = [spreadStart, spreadStart + 1, spreadStart + 2].filter(pageNum => pageNum <= doc.numPages);
             for (const pageNum of rows) {
@@ -269,19 +275,26 @@ async function buildExportLayout(file) {
 
 async function createExportRow(pdfDocument, pageNumber) {
     const row = document.createElement('div');
-    row.className = 'export-row grid gap-4 lg:gap-6 items-stretch grid-cols-1 lg:grid-cols-[70%_30%]';
+    row.className = 'export-row grid items-stretch grid-cols-1 lg:grid-cols-[70%_30%]';
+    row.style.margin = '0';
+    row.style.padding = '0';
+    row.style.gap = '0';
     const page = await pdfDocument.getPage(pageNumber);
     const viewport = page.getViewport({ scale: 1 });
 
     const previewCol = document.createElement('div');
-    previewCol.className = 'space-y-2';
-    previewCol.innerHTML = `<p class="text-xs uppercase tracking-wide text-gray-500 font-semibold">Page ${pageNumber}</p>`;
+    previewCol.style.margin = '0';
+    previewCol.style.padding = '0';
+    previewCol.style.width = '100%';
+    previewCol.style.height = '100%';
 
     const previewWrapper = document.createElement('div');
-    previewWrapper.className = 'rounded-2xl border border-gray-200 overflow-hidden shadow-inner bg-gray-50';
     previewWrapper.style.aspectRatio = `${viewport.width} / ${viewport.height}`;
-    previewWrapper.style.minHeight = '280px';
+    previewWrapper.style.width = '100%';
+    previewWrapper.style.height = '100%';
     previewWrapper.style.display = 'block';
+    previewWrapper.style.margin = '0';
+    previewWrapper.style.padding = '0';
 
     const canvas = document.createElement('canvas');
     canvas.width = viewport.width;
@@ -297,6 +310,10 @@ async function createExportRow(pdfDocument, pageNumber) {
 
     const commentCol = document.createElement('div');
     commentCol.className = 'comment-card';
+    commentCol.style.margin = '0';
+    commentCol.style.padding = '0';
+    commentCol.style.width = '100%';
+    commentCol.style.height = '100%';
     commentCol.innerHTML = `<p class="text-xs uppercase tracking-wide text-indigo-600 font-semibold">Comments</p>`;
 
     row.appendChild(previewCol);
@@ -317,6 +334,28 @@ async function renderPDF(pdfData) {
         document.addEventListener('mouseup', handleTextSelection);
         document.removeEventListener('mousedown', checkHideFloatingMenu);
         document.addEventListener('mousedown', checkHideFloatingMenu);
+        
+        // Add resize handler to recalculate page scales
+        let resizeTimeout;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(async () => {
+                if (pdfDoc && pdfContainer) {
+                    const pages = pdfContainer.querySelectorAll('.page');
+                    for (const pageWrapper of pages) {
+                        const pageNum = parseInt(pageWrapper.dataset.pageNumber);
+                        if (pageNum) {
+                            // Remove old page
+                            pageWrapper.remove();
+                            // Re-render with new scale
+                            await renderPage(pdfDoc, pageNum);
+                        }
+                    }
+                    // Re-render highlights after resize
+                    renderHighlights();
+                }
+            }, 300);
+        });
     } catch (error) {
         console.error('Error rendering PDF:', error);
         loader.classList.add('hidden');
@@ -375,12 +414,18 @@ setupDragAndDrop();
 
 async function renderPage(pdfDoc, num) {
     const page = await pdfDoc.getPage(num);
-    const scale = 1.5;
+    
+    // Calculate scale based on available container width
+    const pdfContainer = document.getElementById('pdf-container');
+    const containerWidth = pdfContainer ? pdfContainer.clientWidth - 40 : 800; // Subtract padding
+    const baseViewport = page.getViewport({ scale: 1.0 });
+    const scale = Math.min(1.5, containerWidth / baseViewport.width);
     const viewport = page.getViewport({ scale: scale });
 
     const pageWrapper = document.createElement('div');
     pageWrapper.className = 'page relative mx-auto my-4';
     pageWrapper.style.width = `${viewport.width}px`;
+    pageWrapper.style.maxWidth = '100%';
     pageWrapper.style.height = `${viewport.height}px`;
     pageWrapper.dataset.pageNumber = String(num);
     
@@ -431,11 +476,28 @@ function renderAnnotations() {
 
     exportAllBtn.disabled = false;
     
-    // Render in reverse order (newest first)
-    annotations.slice().reverse().forEach(ann => {
+    // Sort by page number (ascending), then by id (oldest first) for same page
+    const sortedAnnotations = annotations.slice().sort((a, b) => {
+        const pageA = a.pageNumber || 0;
+        const pageB = b.pageNumber || 0;
+        if (pageA !== pageB) {
+            return pageA - pageB;
+        }
+        return a.id - b.id;
+    });
+    
+        sortedAnnotations.forEach(ann => {
         const commentDiv = document.createElement('div');
-        commentDiv.className = 'comment-highlight group'; 
+        commentDiv.className = 'comment-highlight group cursor-pointer'; 
         commentDiv.setAttribute('data-id', ann.id);
+        commentDiv.title = 'Click to jump to highlight in PDF';
+        commentDiv.addEventListener('click', function(e) {
+            // Don't trigger if clicking on buttons or inputs
+            if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.closest('button') || e.target.closest('input')) {
+                return;
+            }
+            scrollToHighlight(ann.id);
+        });
 
         const safeTextForDisplay = escapeForHtml(ann.text);
         const safeTextForClipboard = escapeForOnclick(ann.text);
@@ -465,7 +527,7 @@ function renderAnnotations() {
             <div class="flex justify-between items-start mb-2">
                 <p class="text-xs text-gray-500 font-mono">Annotated Text:</p>
                 <div class="flex space-x-2">
-                    <button onclick="copyToClipboard('${safeTextForClipboard}')" 
+                    <button onclick="showExportTemplateModal(${ann.id})" 
                             class="copy-btn text-xs text-indigo-500 hover:text-indigo-700 font-medium py-1 px-2 rounded transition duration-150">
                         Copy to Clipboard
                     </button>
@@ -697,38 +759,312 @@ function triggerAnnotation() {
     }
 }
 
+// Flag to track if export template modal event listener is set up
+let exportTemplateModalSetup = false;
+
+/**
+ * Shows the export template selection modal.
+ * @param {number} annotationId - Optional annotation ID for single annotation export
+ */
+function showExportTemplateModal(annotationId = null) {
+    if (annotationId === null && annotations.length === 0) return;
+    const modal = document.getElementById('export-template-modal');
+    if (!modal) return;
+    
+    // Store annotationId for later use
+    modal.dataset.annotationId = annotationId || '';
+    
+    // Reset all feedback messages and active states when showing modal
+    document.querySelectorAll('.export-template-card').forEach(card => {
+        // Reset active states
+        card.classList.remove('border-indigo-600', 'bg-indigo-100', 'ring-2', 'ring-indigo-500', 'active');
+        // Reset feedback messages - clear inline styles and reset opacity
+        const feedbackEl = card.querySelector('.copy-feedback');
+        if (feedbackEl) {
+            feedbackEl.style.display = '';
+            feedbackEl.style.visibility = '';
+            feedbackEl.style.opacity = '';
+            feedbackEl.classList.remove('opacity-100');
+            feedbackEl.classList.add('opacity-0');
+        }
+    });
+    
+    // Set up event delegation once
+    if (!exportTemplateModalSetup) {
+        modal.addEventListener('click', function(e) {
+            const card = e.target.closest('.export-template-card');
+            if (card) {
+                e.stopPropagation(); // Prevent event bubbling
+                const template = parseInt(card.dataset.template);
+                const annId = modal.dataset.annotationId;
+                
+                // Show active state - remove from all cards first
+                document.querySelectorAll('.export-template-card').forEach(c => {
+                    c.classList.remove('border-indigo-600', 'bg-indigo-100', 'ring-2', 'ring-indigo-500', 'active');
+                    // Hide all feedback messages
+                    const fb = c.querySelector('.copy-feedback');
+                    if (fb) {
+                        fb.classList.remove('opacity-100');
+                        fb.classList.add('opacity-0');
+                    }
+                });
+                // Add active state to selected card
+                card.classList.add('border-indigo-600', 'bg-indigo-100', 'ring-2', 'ring-indigo-500', 'active');
+                
+                // Show "Text copy to clipboard" message
+                const feedbackEl = card.querySelector('.copy-feedback');
+                if (feedbackEl) {
+                    // Force display and visibility
+                    feedbackEl.style.display = 'block';
+                    feedbackEl.style.visibility = 'visible';
+                    feedbackEl.style.opacity = '1';
+                    feedbackEl.classList.remove('opacity-0');
+                    feedbackEl.classList.add('opacity-100');
+                }
+                
+                // Export immediately
+                if (annId) {
+                    exportSingleAnnotation(parseInt(annId), template);
+                } else {
+                    exportAllComments(template);
+                }
+                
+                // Close modal immediately
+                hideExportTemplateModal();
+                
+                // Fade out the feedback message after a short delay (while modal is closing)
+                setTimeout(() => {
+                    if (feedbackEl) {
+                        feedbackEl.classList.remove('opacity-100');
+                        feedbackEl.classList.add('opacity-0');
+                    }
+                }, 1500);
+            }
+        });
+        exportTemplateModalSetup = true;
+    }
+    
+    modal.classList.remove('hidden');
+}
+
+/**
+ * Hides the export template selection modal.
+ */
+function hideExportTemplateModal() {
+    const modal = document.getElementById('export-template-modal');
+    if (!modal) return;
+    modal.classList.add('hidden');
+    
+    // Reset active states and feedback messages - clear inline styles
+    document.querySelectorAll('.export-template-card').forEach(card => {
+        card.classList.remove('border-indigo-600', 'bg-indigo-100', 'ring-2', 'ring-indigo-500', 'active');
+        const feedbackEl = card.querySelector('.copy-feedback');
+        if (feedbackEl) {
+            feedbackEl.style.display = '';
+            feedbackEl.style.visibility = '';
+            feedbackEl.style.opacity = '';
+            feedbackEl.classList.remove('opacity-100');
+            feedbackEl.classList.add('opacity-0');
+        }
+    });
+}
+
+/**
+ * Shows the success popup modal.
+ */
+function showSuccessPopup(message) {
+    const modal = document.getElementById('success-popup-modal');
+    const messageEl = document.getElementById('success-popup-message');
+    if (messageEl) {
+        messageEl.textContent = message || 'All text is already copy to clipboard';
+    }
+    if (modal) {
+        modal.classList.remove('hidden');
+        // Auto-hide after 3 seconds
+        setTimeout(() => {
+            hideSuccessPopup();
+        }, 3000);
+    }
+}
+
+/**
+ * Hides the success popup modal.
+ */
+function hideSuccessPopup() {
+    const modal = document.getElementById('success-popup-modal');
+    if (modal) {
+        modal.classList.add('hidden');
+    }
+}
+
 /**
  * Exports all annotations and their replies to the clipboard in a structured format.
+ * @param {number} template - Template number (1-4). If not provided, shows modal.
  */
-function exportAllComments() {
+function exportAllComments(template) {
     if (annotations.length === 0) return;
+    
+    // If no template specified, show modal
+    if (!template) {
+        showExportTemplateModal();
+        return;
+    }
+
+    // Sort annotations by page number
+    const sortedAnnotations = annotations.slice().sort((a, b) => {
+        const pageA = a.pageNumber || 0;
+        const pageB = b.pageNumber || 0;
+        if (pageA !== pageB) {
+            return pageA - pageB;
+        }
+        return a.id - b.id;
+    });
 
     let exportText = "";
     
-    // Loop through annotations in the order they were added (oldest first)
-    // Note: annotations array stores data oldest first, but the rendering is reversed.
-    annotations.forEach((ann, index) => {
+    sortedAnnotations.forEach((ann, index) => {
         const quoteText = ann.text.trim();
         const quoteReplies = ann.replies;
+        const pageNumber = ann.pageNumber || 0;
         
-        // Format the main quote block
-        exportText += `${index + 1}) Annotated Text:\n${quoteText}`;
-        
-        // Add replies if they exist
-        if (quoteReplies.length > 0) {
-            exportText += "\nComments/Questions:\n";
-            quoteReplies.forEach(reply => {
-                exportText += `- ${reply}\n`;
-            });
+        // Format based on selected template
+        switch(template) {
+            case 1:
+                // Template 1: Original format
+                exportText += `${index + 1}) Annotated Text:\n${quoteText}`;
+                if (quoteReplies.length > 0) {
+                    exportText += "\nComments/Questions:\n";
+                    quoteReplies.forEach(reply => {
+                        exportText += `- ${reply}\n`;
+                    });
+                }
+                break;
+            case 2:
+                // Template 2: With quotes
+                exportText += `${index + 1}) "${quoteText}"`;
+                if (quoteReplies.length > 0) {
+                    exportText += "\n\nComments/Questions:\n";
+                    quoteReplies.forEach(reply => {
+                        exportText += `- ${reply}\n`;
+                    });
+                }
+                break;
+            case 3:
+                // Template 3: With ellipsis quotes
+                exportText += `${index + 1}) "...${quoteText}..."`;
+                if (quoteReplies.length > 0) {
+                    exportText += "\n\nComments/Questions:\n";
+                    quoteReplies.forEach(reply => {
+                        exportText += `- ${reply}\n`;
+                    });
+                }
+                break;
+            case 4:
+                // Template 4: With ellipsis quotes and page number
+                exportText += `${index + 1}) "...${quoteText}..."`;
+                if (quoteReplies.length > 0) {
+                    exportText += "\n\nComments/Questions:\n";
+                    quoteReplies.forEach(reply => {
+                        exportText += `- ${reply}\n`;
+                    });
+                }
+                if (pageNumber > 0) {
+                    exportText += `\nPage ${pageNumber}`;
+                }
+                break;
+            default:
+                // Default to template 1
+                exportText += `${index + 1}) Annotated Text:\n${quoteText}`;
+                if (quoteReplies.length > 0) {
+                    exportText += "\nComments/Questions:\n";
+                    quoteReplies.forEach(reply => {
+                        exportText += `- ${reply}\n`;
+                    });
+                }
         }
         
-        if (index < annotations.length - 1) {
+        if (index < sortedAnnotations.length - 1) {
             exportText += "\n\n";
         }
     });
 
     copyToClipboard(exportText);
-    console.log("All comments exported to clipboard.");
+    console.log(`All comments exported to clipboard using template ${template}.`);
+}
+
+/**
+ * Exports a single annotation using the specified template.
+ * @param {number} annotationId - The ID of the annotation to export
+ * @param {number} template - Template number (1-4)
+ */
+function exportSingleAnnotation(annotationId, template) {
+    const annotation = annotations.find(ann => ann.id === annotationId);
+    if (!annotation) return;
+
+    const quoteText = annotation.text.trim();
+    const quoteReplies = annotation.replies;
+    const pageNumber = annotation.pageNumber || 0;
+    
+    let exportText = "";
+    
+    // Format based on selected template
+    switch(template) {
+        case 1:
+            // Template 1: Original format
+            exportText += `1) Annotated Text:\n${quoteText}`;
+            if (quoteReplies.length > 0) {
+                exportText += "\nComments/Questions:\n";
+                quoteReplies.forEach(reply => {
+                    exportText += `- ${reply}\n`;
+                });
+            }
+            break;
+        case 2:
+            // Template 2: With quotes
+            exportText += `1) "${quoteText}"`;
+            if (quoteReplies.length > 0) {
+                exportText += "\n\nComments/Questions:\n";
+                quoteReplies.forEach(reply => {
+                    exportText += `- ${reply}\n`;
+                });
+            }
+            break;
+        case 3:
+            // Template 3: With ellipsis quotes
+            exportText += `1) "...${quoteText}..."`;
+            if (quoteReplies.length > 0) {
+                exportText += "\n\nComments/Questions:\n";
+                quoteReplies.forEach(reply => {
+                    exportText += `- ${reply}\n`;
+                });
+            }
+            break;
+        case 4:
+            // Template 4: With ellipsis quotes and page number
+            exportText += `1) "...${quoteText}..."`;
+            if (quoteReplies.length > 0) {
+                exportText += "\n\nComments/Questions:\n";
+                quoteReplies.forEach(reply => {
+                    exportText += `- ${reply}\n`;
+                });
+            }
+            if (pageNumber > 0) {
+                exportText += `\nPage ${pageNumber}`;
+            }
+            break;
+        default:
+            // Default to template 1
+            exportText += `1) Annotated Text:\n${quoteText}`;
+            if (quoteReplies.length > 0) {
+                exportText += "\nComments/Questions:\n";
+                quoteReplies.forEach(reply => {
+                    exportText += `- ${reply}\n`;
+                });
+            }
+    }
+
+    copyToClipboard(exportText);
+    console.log(`Annotation ${annotationId} exported to clipboard using template ${template}.`);
 }
 
 // --- Highlight Rendering ---
@@ -748,12 +1084,63 @@ function renderHighlights() {
         ann.rects.forEach(r => {
             const box = document.createElement('div');
             box.className = 'highlightBox';
+            box.dataset.annotationId = ann.id;
             box.style.left = `${r.x}px`;
             box.style.top = `${r.y}px`;
             box.style.width = `${r.width}px`;
             box.style.height = `${r.height}px`;
             pageLayer.appendChild(box);
         });
+    });
+}
+
+/**
+ * Scrolls to the highlight in the PDF viewer for the given annotation
+ * @param {number} annotationId - The ID of the annotation to scroll to
+ */
+function scrollToHighlight(annotationId) {
+    const annotation = annotations.find(ann => ann.id === annotationId);
+    if (!annotation || !annotation.pageNumber) return;
+
+    // Find the page wrapper
+    const pageWrapper = document.querySelector(`.page[data-page-number="${annotation.pageNumber}"]`);
+    if (!pageWrapper) return;
+
+    // Scroll the PDF container to show the page
+    if (pdfContainer) {
+        // Calculate the position to scroll to (center of the first highlight rect)
+        const firstRect = annotation.rects && annotation.rects[0];
+        if (firstRect) {
+            const pageRect = pageWrapper.getBoundingClientRect();
+            const containerRect = pdfContainer.getBoundingClientRect();
+            const scrollTop = pdfContainer.scrollTop;
+            const targetY = scrollTop + pageRect.top - containerRect.top + firstRect.y + (firstRect.height / 2) - (containerRect.height / 2);
+            
+            pdfContainer.scrollTo({
+                top: Math.max(0, targetY),
+                behavior: 'smooth'
+            });
+        } else {
+            // If no rects, just scroll to the page
+            pageWrapper.scrollIntoView({ 
+                behavior: 'smooth', 
+                block: 'center',
+                inline: 'nearest'
+            });
+        }
+    }
+
+    // Add a visual pulse effect to the highlight
+    const highlightBoxes = document.querySelectorAll(`.highlightBox[data-annotation-id="${annotationId}"]`);
+    highlightBoxes.forEach(box => {
+        box.style.transition = 'all 0.3s ease';
+        box.style.background = 'rgba(250, 204, 21, 0.6)';
+        box.style.boxShadow = '0 0 0 2px rgba(250, 204, 21, 0.8)';
+        
+        setTimeout(() => {
+            box.style.background = '';
+            box.style.boxShadow = '';
+        }, 2000);
     });
 }
 

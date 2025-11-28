@@ -184,6 +184,8 @@ function processPdfFile(file) {
     const fileReader = new FileReader();
     fileReader.onload = function () {
         const pdfData = new Uint8Array(this.result);
+        // Save PDF to localStorage
+        savePdfToStorage(file.name, pdfData);
         renderPDF(pdfData);
     };
     fileReader.readAsArrayBuffer(file);
@@ -319,6 +321,112 @@ async function createExportRow(pdfDocument, pageNumber) {
     row.appendChild(previewCol);
     row.appendChild(commentCol);
     return row;
+}
+
+// --- PDF Persistence Functions ---
+
+/**
+ * Saves PDF file to localStorage
+ * @param {string} filename - Name of the PDF file
+ * @param {Uint8Array} pdfData - PDF file data
+ */
+function savePdfToStorage(filename, pdfData) {
+    try {
+        // Convert Uint8Array to base64 for storage (handle large files)
+        let base64String = '';
+        const chunkSize = 0x8000; // 32KB chunks to avoid call stack overflow
+        for (let i = 0; i < pdfData.length; i += chunkSize) {
+            const chunk = pdfData.subarray(i, i + chunkSize);
+            base64String += String.fromCharCode.apply(null, chunk);
+        }
+        base64String = btoa(base64String);
+        
+        localStorage.setItem('pdf_filename', filename);
+        localStorage.setItem('pdf_data', base64String);
+        localStorage.setItem('pdf_timestamp', Date.now().toString());
+        console.log('PDF saved to localStorage:', filename, 'Size:', (base64String.length / 1024).toFixed(2), 'KB');
+    } catch (e) {
+        console.error('Error saving PDF to localStorage:', e);
+        // If storage quota exceeded, try to clear old data
+        if (e.name === 'QuotaExceededError' || e.message.includes('quota')) {
+            console.warn('Storage quota exceeded, clearing old PDF data');
+            localStorage.removeItem('pdf_data');
+            localStorage.removeItem('pdf_filename');
+            localStorage.removeItem('pdf_timestamp');
+        }
+    }
+}
+
+/**
+ * Loads PDF from localStorage
+ * @returns {Uint8Array|null} PDF data or null if not found
+ */
+function loadPdfFromStorage() {
+    try {
+        const pdfDataBase64 = localStorage.getItem('pdf_data');
+        const filename = localStorage.getItem('pdf_filename');
+        if (!pdfDataBase64 || !filename) {
+            console.log('No saved PDF found in localStorage');
+            return null;
+        }
+        
+        // Convert base64 back to Uint8Array
+        const binaryString = atob(pdfDataBase64);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+        
+        console.log('PDF loaded from localStorage:', filename, 'Size:', (bytes.length / 1024).toFixed(2), 'KB');
+        return { data: bytes, filename: filename };
+    } catch (e) {
+        console.error('Error loading PDF from localStorage:', e);
+        // Clear corrupted data
+        localStorage.removeItem('pdf_data');
+        localStorage.removeItem('pdf_filename');
+        localStorage.removeItem('pdf_timestamp');
+        return null;
+    }
+}
+
+/**
+ * Clears saved PDF from localStorage
+ */
+function clearPdfFromStorage() {
+    localStorage.removeItem('pdf_data');
+    localStorage.removeItem('pdf_filename');
+    localStorage.removeItem('pdf_timestamp');
+    console.log('PDF cleared from localStorage');
+}
+
+/**
+ * Saves annotations to localStorage
+ */
+function saveAnnotationsToStorage() {
+    try {
+        localStorage.setItem('annotations', JSON.stringify(annotations));
+        localStorage.setItem('annotations_timestamp', Date.now().toString());
+    } catch (e) {
+        console.error('Error saving annotations to localStorage:', e);
+    }
+}
+
+/**
+ * Loads annotations from localStorage
+ */
+function loadAnnotationsFromStorage() {
+    try {
+        const savedAnnotations = localStorage.getItem('annotations');
+        if (savedAnnotations) {
+            annotations = JSON.parse(savedAnnotations);
+            renderAnnotations();
+            console.log('Annotations loaded from localStorage:', annotations.length);
+            return true;
+        }
+    } catch (e) {
+        console.error('Error loading annotations from localStorage:', e);
+    }
+    return false;
 }
 
 // Replaced: renderPDF was corrupted by nested functions. Provide clean implementation.
@@ -572,6 +680,7 @@ function deleteAnnotation(annotationId) {
     showModal('Are you sure you want to delete this entire annotation block and all its replies?', () => {
         annotations = annotations.filter(ann => ann.id !== annotationId);
         renderAnnotations();
+        saveAnnotationsToStorage();
     });
 }
 
@@ -654,6 +763,7 @@ function saveEditReply(event, annotationId, replyIndex) {
             annotation.replies.splice(replyIndex, 1);
         }
         renderAnnotations();
+        saveAnnotationsToStorage();
     }
 }
 
@@ -668,6 +778,7 @@ function addReply(annotationId) {
             annotation.replies.push(replyText);
             replyInput.value = '';
             renderAnnotations();
+            saveAnnotationsToStorage();
         }
     }
 }
@@ -751,6 +862,7 @@ function triggerAnnotation() {
         };
         annotations.push(newAnnotation);
         renderAnnotations();
+        saveAnnotationsToStorage();
         
         floatingMenu.classList.add('hidden');
         window.getSelection().removeAllRanges();
@@ -1252,3 +1364,30 @@ if (pasteDropzone) {
         updatePasteStatus('Press Ctrl+V with an image copied to clipboard.');
     });
 }
+
+// --- Initialize: Load saved PDF and annotations on page load ---
+// Wait for DOM to be fully ready
+(function initializeSavedData() {
+    // Use a small delay to ensure all DOM elements are available
+    setTimeout(async function() {
+        // Load saved PDF
+        const savedPdf = loadPdfFromStorage();
+        if (savedPdf && savedPdf.data) {
+            console.log('Restoring PDF:', savedPdf.filename);
+            if (appContainer) appContainer.style.display = 'grid';
+            if (pdfContainer) pdfContainer.innerHTML = '';
+            if (loader) loader.classList.remove('hidden');
+            try {
+                await renderPDF(savedPdf.data);
+            } catch (err) {
+                console.error('Error restoring PDF:', err);
+                if (loader) loader.classList.add('hidden');
+                // Clear corrupted data
+                clearPdfFromStorage();
+            }
+        }
+        
+        // Load saved annotations
+        loadAnnotationsFromStorage();
+    }, 100);
+})();

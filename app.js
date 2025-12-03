@@ -26,6 +26,14 @@ const pasteDropzone = document.getElementById('paste-dropzone');
 const pastedImageWrapper = document.getElementById('pasted-image-wrapper');
 const pastedImage = document.getElementById('pasted-image');
 const pastedMeta = document.getElementById('pasted-meta');
+const isometricSection = document.getElementById('isometric-section');
+const isoDropzone = document.getElementById('iso-dropzone');
+const isoStatus = document.getElementById('iso-status');
+const isoOriginalCanvas = document.getElementById('iso-original-canvas');
+const isoOriginalMeta = document.getElementById('iso-original-meta');
+const isoOriginalFullBtn = document.getElementById('iso-original-full-btn');
+const isoResultsGrid = document.getElementById('iso-results-grid');
+const isoClearBtn = document.getElementById('iso-clear-btn');
 
 let currentSection = 'pdf';
 let saveDirectoryHandle = null;
@@ -33,8 +41,21 @@ const sectionMap = {
     pdf: pdfSection,
     text: textSection,
     paste: pasteSection,
+    isometric: isometricSection,
     export: exportSection,
 };
+
+const ISO_SCALE_Y = Math.cos(Math.PI / 6);
+const ISO_SHEAR_K = Math.tan(Math.PI / 6);
+const ISO_PAD = 8;
+const ISO_WIDTH_VARIANTS = [
+    { key: 'very_narrow', label: 'Very narrow', factor: 0.6 },
+    { key: 'narrow', label: 'Narrow', factor: 0.8 },
+    { key: 'medium', label: 'Medium', factor: 1.0 },
+    { key: 'wide', label: 'Wide', factor: 1.25 },
+];
+let isoResults = [];
+let isoOriginalDataUrl = '';
 
 function switchSection(target) {
     currentSection = target;
@@ -1341,7 +1362,7 @@ function getImageFromClipboard(event) {
     return file || null;
 }
 
-async function handlePaste(event) {
+async function handlePasteForStorage(event) {
     if (currentSection !== 'paste') return;
     const imageFile = getImageFromClipboard(event);
     if (!imageFile) {
@@ -1353,17 +1374,327 @@ async function handlePaste(event) {
     await autoSaveImage(imageFile);
 }
 
+function updateIsoStatus(message) {
+    if (!isoStatus) return;
+    isoStatus.textContent = message;
+}
+
+function updateOriginalPreview(sourceCanvas) {
+    if (!isoOriginalCanvas || !isoOriginalMeta || !sourceCanvas) return;
+    isoOriginalCanvas.classList.remove('hidden');
+    isoOriginalCanvas.width = sourceCanvas.width;
+    isoOriginalCanvas.height = sourceCanvas.height;
+    const ctx = isoOriginalCanvas.getContext('2d');
+    if (ctx) {
+        ctx.imageSmoothingQuality = 'high';
+        ctx.clearRect(0, 0, isoOriginalCanvas.width, isoOriginalCanvas.height);
+        ctx.drawImage(sourceCanvas, 0, 0);
+    }
+    isoOriginalMeta.textContent = `Original size: ${sourceCanvas.width} × ${sourceCanvas.height}`;
+    isoOriginalMeta.classList.remove('hidden');
+    isoOriginalCanvas.style.maxWidth = '25%';
+    isoOriginalCanvas.style.height = 'auto';
+    isoOriginalCanvas.style.margin = '0 auto';
+    isoOriginalDataUrl = isoOriginalCanvas.toDataURL('image/png');
+    if (isoOriginalFullBtn) {
+        isoOriginalFullBtn.disabled = false;
+    }
+    prepareCanvasPreview(isoOriginalCanvas, '45vh');
+}
+
+function openIsoOriginalFullSize() {
+    if (!isoOriginalCanvas) return;
+    let url = isoOriginalDataUrl;
+    if (!url) {
+        url = isoOriginalCanvas.toDataURL('image/png');
+    }
+    if (!url) return;
+    window.open(url, '_blank');
+    updateIsoStatus('Full-resolution image opened in a new tab.');
+}
+
+function prepareCanvasPreview(canvas, maxHeight = '30vh') {
+    if (!canvas) return;
+    canvas.style.display = 'block';
+    canvas.style.width = '100%';
+    canvas.style.height = 'auto';
+    canvas.style.maxHeight = maxHeight;
+}
+
+function scaleCanvas(source, targetWidth, targetHeight) {
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(targetWidth));
+    canvas.height = Math.max(1, Math.round(targetHeight));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return canvas;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(source, 0, 0, source.width, source.height, 0, 0, canvas.width, canvas.height);
+    return canvas;
+}
+
+function autocropCanvas(canvas, pad = ISO_PAD) {
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return canvas;
+    const { width, height } = canvas;
+    const imageData = ctx.getImageData(0, 0, width, height);
+    const data = imageData.data;
+    let x0 = width;
+    let y0 = height;
+    let x1 = 0;
+    let y1 = 0;
+    for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+            const alpha = data[(y * width + x) * 4 + 3];
+            if (alpha > 4) {
+                x0 = Math.min(x0, x);
+                y0 = Math.min(y0, y);
+                x1 = Math.max(x1, x);
+                y1 = Math.max(y1, y);
+            }
+        }
+    }
+    if (x1 <= x0 || y1 <= y0) return canvas;
+    const cropX0 = Math.max(0, x0 - pad);
+    const cropY0 = Math.max(0, y0 - pad);
+    const cropX1 = Math.min(width, x1 + pad);
+    const cropY1 = Math.min(height, y1 + pad);
+    const cropWidth = cropX1 - cropX0;
+    const cropHeight = cropY1 - cropY0;
+    if (cropWidth <= 0 || cropHeight <= 0) return canvas;
+    const cropped = document.createElement('canvas');
+    cropped.width = cropWidth;
+    cropped.height = cropHeight;
+    const cropCtx = cropped.getContext('2d');
+    if (!cropCtx) return canvas;
+    cropCtx.drawImage(canvas, cropX0, cropY0, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+    return cropped;
+}
+
+function shearVertical(source, k, direction) {
+    const offset = Math.round(k * source.width);
+    const newHeight = source.height + offset;
+    const canvas = document.createElement('canvas');
+    canvas.width = source.width;
+    canvas.height = Math.max(1, newHeight);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return canvas;
+    ctx.imageSmoothingQuality = 'high';
+    if (direction === 'up') {
+        ctx.setTransform(1, k, 0, 1, 0, 0);
+        ctx.drawImage(source, 0, 0);
+    } else {
+        ctx.setTransform(1, -k, 0, 1, 0, offset);
+        ctx.drawImage(source, 0, 0);
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    return autocropCanvas(canvas);
+}
+
+function shearHorizontal(source, k, direction) {
+    const offset = Math.round(k * source.height);
+    const newWidth = source.width + offset;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, newWidth);
+    canvas.height = source.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return canvas;
+    ctx.imageSmoothingQuality = 'high';
+    if (direction === 'right') {
+        ctx.setTransform(1, 0, k, 1, 0, 0);
+        ctx.drawImage(source, 0, 0);
+    } else {
+        ctx.setTransform(1, 0, -k, 1, offset, 0);
+        ctx.drawImage(source, 0, 0);
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    return autocropCanvas(canvas);
+}
+
+function rotateCanvas(source, degrees) {
+    const radians = (degrees * Math.PI) / 180;
+    const sin = Math.abs(Math.sin(radians));
+    const cos = Math.abs(Math.cos(radians));
+    const newWidth = Math.ceil(source.width * cos + source.height * sin);
+    const newHeight = Math.ceil(source.width * sin + source.height * cos);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, newWidth);
+    canvas.height = Math.max(1, newHeight);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return autocropCanvas(canvas);
+    ctx.imageSmoothingQuality = 'high';
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.rotate(radians);
+    ctx.drawImage(source, -source.width / 2, -source.height / 2);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    return autocropCanvas(canvas);
+}
+
+async function processIsometricImage(file) {
+    if (!file) return;
+    const bitmap = await createImageBitmap(file);
+    const baseCanvas = document.createElement('canvas');
+    baseCanvas.width = bitmap.width;
+    baseCanvas.height = bitmap.height;
+    const baseCtx = baseCanvas.getContext('2d');
+    if (baseCtx) {
+        baseCtx.imageSmoothingQuality = 'high';
+        baseCtx.drawImage(bitmap, 0, 0);
+    }
+    bitmap.close();
+    updateOriginalPreview(baseCanvas);
+
+    const results = [];
+    ISO_WIDTH_VARIANTS.forEach(variant => {
+        const scaledWidth = Math.max(1, Math.round(baseCanvas.width * variant.factor));
+        const scaled = scaleCanvas(baseCanvas, scaledWidth, baseCanvas.height);
+        const isoHeight = Math.max(1, Math.round(scaled.height * ISO_SCALE_Y));
+        const isoScaled = scaleCanvas(scaled, scaled.width, isoHeight);
+
+        const up = shearVertical(isoScaled, ISO_SHEAR_K, 'up');
+        const down = shearVertical(isoScaled, ISO_SHEAR_K, 'down');
+        const left = shearHorizontal(isoScaled, ISO_SHEAR_K, 'left');
+        const right = shearHorizontal(isoScaled, ISO_SHEAR_K, 'right');
+        const leftRot = rotateCanvas(left, -30);
+        const rightRot = rotateCanvas(right, -30);
+
+        results.push({ variant: variant.label, direction: 'Left CCW 30deg', canvas: leftRot });
+        results.push({ variant: variant.label, direction: 'Right CCW 30deg', canvas: rightRot });
+        results.push({ variant: variant.label, direction: 'Shear Up', canvas: up });
+        results.push({ variant: variant.label, direction: 'Shear Down', canvas: down });
+        results.push({ variant: variant.label, direction: 'Shear Left', canvas: left });
+        results.push({ variant: variant.label, direction: 'Shear Right', canvas: right });
+    });
+
+    isoResults = results;
+    renderIsometricResults();
+    updateIsoStatus('Isometric conversion ready. Download any variant below.');
+}
+
+function renderIsometricResults() {
+    if (!isoResultsGrid) return;
+    isoResultsGrid.innerHTML = '';
+    if (isoResults.length === 0) {
+        isoResultsGrid.innerHTML = '<p class="text-sm text-gray-500">Paste an image in this tab to preview the isometric projections.</p>';
+        setIsometricClearState(false);
+        return;
+    }
+    setIsometricClearState(true);
+    isoResults.forEach(entry => {
+        const card = document.createElement('div');
+        card.className = 'rounded-2xl border border-gray-200 bg-white p-3 flex flex-col gap-3 shadow-sm';
+
+        const header = document.createElement('div');
+        header.className = 'flex items-center justify-between text-xs text-gray-500 tracking-wide uppercase';
+        header.innerHTML = `<span>${entry.direction}</span><span>${entry.variant}</span>`;
+
+        const canvasWrapper = document.createElement('div');
+        canvasWrapper.className = 'overflow-hidden rounded-xl border border-indigo-50 bg-white';
+        entry.canvas.className = 'w-full';
+        prepareCanvasPreview(entry.canvas, '32vh');
+        canvasWrapper.appendChild(entry.canvas);
+
+        const actions = document.createElement('div');
+        actions.className = 'flex items-center gap-2';
+        const downloadBtn = document.createElement('button');
+        downloadBtn.className = 'flex-1 text-xs font-semibold border border-indigo-200 rounded-full py-1 px-3 text-indigo-600 hover:bg-indigo-50 transition';
+        downloadBtn.textContent = 'Download PNG';
+        downloadBtn.addEventListener('click', () => {
+            const filename = `isometric_${entry.variant.replace(/\s+/g, '_').toLowerCase()}_${entry.direction.replace(/[^a-z0-9]+/gi, '_').toLowerCase()}.png`;
+            downloadCanvasAsPng(entry.canvas, filename);
+        });
+        actions.appendChild(downloadBtn);
+
+        card.appendChild(header);
+        card.appendChild(canvasWrapper);
+        card.appendChild(actions);
+        isoResultsGrid.appendChild(card);
+    });
+}
+
+function downloadCanvasAsPng(canvas, filename) {
+    canvas.toBlob(blob => {
+        if (!blob) return;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }, 'image/png');
+}
+
+function setIsometricClearState(enabled) {
+    if (!isoClearBtn) return;
+    isoClearBtn.disabled = !enabled;
+    isoClearBtn.classList.toggle('bg-indigo-500', enabled);
+    isoClearBtn.classList.toggle('hover:bg-indigo-600', enabled);
+    isoClearBtn.classList.toggle('text-white', enabled);
+    isoClearBtn.classList.toggle('shadow-md', enabled);
+    isoClearBtn.classList.toggle('bg-gray-200', !enabled);
+    isoClearBtn.classList.toggle('text-gray-600', !enabled);
+    isoClearBtn.classList.toggle('shadow-inner', !enabled);
+}
+
+function clearIsometricResults() {
+    isoResults = [];
+    if (isoOriginalCanvas) isoOriginalCanvas.classList.add('hidden');
+    if (isoOriginalMeta) isoOriginalMeta.classList.add('hidden');
+    isoOriginalDataUrl = '';
+    if (isoOriginalFullBtn) {
+        isoOriginalFullBtn.disabled = true;
+    }
+    renderIsometricResults();
+    updateIsoStatus('Waiting for image from clipboard...');
+}
+
+function handleClipboardEvent(event) {
+    handlePasteForStorage(event);
+    handleIsometricPaste(event);
+}
+
+async function handleIsometricPaste(event) {
+    if (currentSection !== 'isometric') return;
+    const imageFile = getImageFromClipboard(event);
+    if (!imageFile) {
+        updateIsoStatus('Clipboard does not contain an image. Copy an image then press Ctrl+V.');
+        return;
+    }
+    updateIsoStatus('Processing image...');
+    try {
+        await processIsometricImage(imageFile);
+    } catch (err) {
+        console.error('Isometric conversion failed', err);
+        updateIsoStatus('Unable to process image. Check the console for details.');
+    }
+}
+
 if (chooseDirBtn) {
     chooseDirBtn.addEventListener('click', requestSaveDirectory);
 }
 
-window.addEventListener('paste', handlePaste);
+window.addEventListener('paste', handleClipboardEvent);
 
 if (pasteDropzone) {
     pasteDropzone.addEventListener('click', () => {
         updatePasteStatus('Press Ctrl+V with an image copied to clipboard.');
     });
 }
+
+if (isoDropzone) {
+    isoDropzone.addEventListener('click', () => {
+        updateIsoStatus('Press Ctrl+V with an image copied to clipboard to start the conversion.');
+    });
+}
+
+if (isoClearBtn) {
+    isoClearBtn.addEventListener('click', clearIsometricResults);
+}
+
+if (isoOriginalFullBtn) {
+    isoOriginalFullBtn.addEventListener('click', openIsoOriginalFullSize);
+}
+
+clearIsometricResults();
 
 // --- Initialize: Load saved PDF and annotations on page load ---
 // Wait for DOM to be fully ready

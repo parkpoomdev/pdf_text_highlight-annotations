@@ -35,6 +35,20 @@ body {
 .page {
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
     margin: 10px auto;
+
+/* Ensure PDF text uses its original embedded fonts.
+   Prevent global/Tailwind font overrides from affecting PDF.js text spans. */
+/* Make textLayer visually invisible while keeping it selectable.
+   This avoids any visible overlay text (and its font) on top of the canvas. */
+#pdf-container .textLayer,
+#pdf-container .textLayer span,
+#pdf-container .textLayer div {
+    color: transparent !important;
+    -webkit-text-fill-color: transparent !important; /* Safari/Chrome: hide glyphs */
+    -webkit-text-stroke: 0 transparent !important;
+    text-shadow: none !important;
+}
+
     position: relative;
     background-color: white;
     border-radius: 6px;
@@ -53,6 +67,18 @@ body {
     overflow: hidden;
     line-height: 1.0; /* Must match the CSS used during PDF rendering */
     z-index: 10; /* Ensures it sits above the canvas */
+    opacity: 1; /* Keep selection highlight fully visible */
+    pointer-events: auto; /* Keep native drag-select working */
+}
+
+/* Show custom highlight color when user drag-selects without showing glyphs */
+#pdf-container .textLayer span::selection {
+    background: rgba(250, 204, 21, 0.35); /* amber selection */
+    color: transparent; /* keep glyphs hidden in selection */
+}
+#pdf-container .textLayer::selection {
+    background: rgba(250, 204, 21, 0.35);
+    color: transparent;
 }
 
 .textLayer span {
@@ -79,6 +105,7 @@ body {
     border-radius: 2px;
     box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.25) inset;
     mix-blend-mode: multiply;
+    pointer-events: none;
 }
 
 /* The comment highlight style */

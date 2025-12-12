@@ -643,14 +643,16 @@ function renderAnnotations() {
     exportAllBtn.disabled = false;
     console.log(`Rendering ${annotations.length} annotations`);
     
-    // Sort by page number (ascending), then by id (oldest first) for same page
+    // Sort by visual position: page asc, then top (y) asc, then left (x) asc
     const sortedAnnotations = annotations.slice().sort((a, b) => {
         const pageA = a.pageNumber || 0;
         const pageB = b.pageNumber || 0;
-        if (pageA !== pageB) {
-            return pageA - pageB;
-        }
-        return a.id - b.id;
+        if (pageA !== pageB) return pageA - pageB;
+        const aRect = Array.isArray(a.rects) && a.rects.length ? a.rects[0] : { y: 0, x: 0 };
+        const bRect = Array.isArray(b.rects) && b.rects.length ? b.rects[0] : { y: 0, x: 0 };
+        if (aRect.y !== bRect.y) return aRect.y - bRect.y;
+        if (aRect.x !== bRect.x) return aRect.x - bRect.x;
+        return a.id - b.id; // stable fallback
     });
     
         sortedAnnotations.forEach(ann => {
@@ -692,14 +694,23 @@ function renderAnnotations() {
         commentDiv.innerHTML = `
             <div class="flex justify-between items-start mb-2">
                 <p class="text-xs text-gray-500 font-mono">Annotated Text:</p>
-                <div class="flex space-x-2">
+                <div class="flex space-x-1">
                     <button onclick="showExportTemplateModal(${ann.id})" 
-                            class="copy-btn text-xs text-indigo-500 hover:text-indigo-700 font-medium py-1 px-2 rounded transition duration-150">
-                        Copy to Clipboard
+                            class="p-2 rounded hover:bg-indigo-50 text-indigo-600" title="Copy">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
                     </button>
                     <button onclick="deleteAnnotation(${ann.id})" 
-                            class="copy-btn text-xs text-red-500 hover:text-red-700 font-medium py-1 px-2 rounded transition duration-150">
-                        Delete Annotation
+                            class="p-2 rounded hover:bg-red-50 text-red-600" title="Delete">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="3 6 5 6 21 6"></polyline>
+                            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+                            <path d="M10 11v6"></path>
+                            <path d="M14 11v6"></path>
+                            <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path>
+                        </svg>
                     </button>
                 </div>
             </div>

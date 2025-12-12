@@ -435,6 +435,78 @@
         </div>
     </section>
 
+    <!-- Confirmation Modal -->
+    <div id="confirmation-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 max-w-sm mx-4">
+            <h3 class="text-lg font-bold text-gray-900 mb-4">Confirm</h3>
+            <p id="modal-message" class="text-gray-600 mb-6"></p>
+            <div class="flex justify-end space-x-3">
+                <button onclick="hideModal()" class="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-semibold transition duration-150">Cancel</button>
+                <button id="modal-confirm-btn" class="px-4 py-2 text-white bg-indigo-500 hover:bg-indigo-600 rounded-lg font-semibold transition duration-150">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Export Template Modal -->
+    <div id="export-template-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 max-w-2xl mx-4">
+            <h3 class="text-lg font-bold text-gray-900 mb-4">Select Export Format</h3>
+            <p class="text-gray-600 mb-6">Choose how you want to format your annotation for clipboard copy:</p>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <!-- Template 1 -->
+                <div class="export-template-card cursor-pointer border-2 border-gray-200 rounded-lg p-4 hover:border-indigo-300 transition duration-150" data-template="1">
+                    <h4 class="font-semibold text-gray-900 mb-2">Original Format</h4>
+                    <p class="text-sm text-gray-600 mb-3">Annotated Text: [text]<br>Comments/Questions: [replies]</p>
+                    <p class="text-xs text-indigo-600 font-semibold copy-feedback opacity-0 transition-opacity duration-300">✓ Copied to clipboard</p>
+                </div>
+                
+                <!-- Template 2 -->
+                <div class="export-template-card cursor-pointer border-2 border-gray-200 rounded-lg p-4 hover:border-indigo-300 transition duration-150" data-template="2">
+                    <h4 class="font-semibold text-gray-900 mb-2">Quoted Format</h4>
+                    <p class="text-sm text-gray-600 mb-3">"[text]"<br>Comments/Questions: [replies]</p>
+                    <p class="text-xs text-indigo-600 font-semibold copy-feedback opacity-0 transition-opacity duration-300">✓ Copied to clipboard</p>
+                </div>
+                
+                <!-- Template 3 -->
+                <div class="export-template-card cursor-pointer border-2 border-gray-200 rounded-lg p-4 hover:border-indigo-300 transition duration-150" data-template="3">
+                    <h4 class="font-semibold text-gray-900 mb-2">Ellipsis Quotes</h4>
+                    <p class="text-sm text-gray-600 mb-3">"...[text]..."<br>Comments/Questions: [replies]</p>
+                    <p class="text-xs text-indigo-600 font-semibold copy-feedback opacity-0 transition-opacity duration-300">✓ Copied to clipboard</p>
+                </div>
+                
+                <!-- Template 4 -->
+                <div class="export-template-card cursor-pointer border-2 border-gray-200 rounded-lg p-4 hover:border-indigo-300 transition duration-150" data-template="4">
+                    <h4 class="font-semibold text-gray-900 mb-2">With Page Number</h4>
+                    <p class="text-sm text-gray-600 mb-3">"...[text]..."<br>Page [number]</p>
+                    <p class="text-xs text-indigo-600 font-semibold copy-feedback opacity-0 transition-opacity duration-300">✓ Copied to clipboard</p>
+                </div>
+            </div>
+            
+            <div class="flex justify-end">
+                <button onclick="hideExportTemplateModal()" class="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-semibold transition duration-150">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Success Popup Modal -->
+    <div id="success-popup-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 max-w-sm mx-4">
+            <div class="flex items-center space-x-3 mb-4">
+                <div class="flex-shrink-0">
+                    <svg class="h-6 w-6 text-green-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                </div>
+                <h3 class="text-lg font-bold text-gray-900">Success!</h3>
+            </div>
+            <p id="success-popup-message" class="text-gray-600 mb-6"></p>
+            <div class="flex justify-end">
+                <button onclick="hideSuccessPopup()" class="px-4 py-2 text-white bg-green-500 hover:bg-green-600 rounded-lg font-semibold transition duration-150">Close</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Load PDF.js Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>

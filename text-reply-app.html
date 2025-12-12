@@ -1139,30 +1139,46 @@
 
             const textToCopy = convertHtmlToPlainText(rootNode);
 
-            const textArea = document.createElement('textarea');
-            textArea.value = textToCopy;
-            textArea.style.position = 'fixed';
-            textArea.style.top = '-9999px';
-            textArea.style.left = '-9999px';
-            document.body.appendChild(textArea);
-            textArea.focus();
-            textArea.select();
-
-            try {
-                const successful = document.execCommand('copy');
-                if (successful) {
+            // Use modern Clipboard API with fallback
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(textToCopy).then(() => {
                     const originalText = copyPreviewBtn.innerText;
                     copyPreviewBtn.innerText = 'Copied!';
                     setTimeout(() => { copyPreviewBtn.innerText = 'Copy'; }, 2000);
-                } else {
-                     showModal('Could not copy text.');
-                }
-            } catch (err) {
-                console.error('Copy failed: ', err);
-                showModal('Could not copy text to clipboard.');
+                }).catch(err => {
+                    console.error('Clipboard API failed:', err);
+                    fallbackCopy();
+                });
+            } else {
+                fallbackCopy();
             }
 
-            document.body.removeChild(textArea);
+            function fallbackCopy() {
+                const textArea = document.createElement('textarea');
+                textArea.value = textToCopy;
+                textArea.style.position = 'fixed';
+                textArea.style.top = '-9999px';
+                textArea.style.left = '-9999px';
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+
+                try {
+                    const successful = document.execCommand('copy');
+                    if (successful) {
+                        const originalText = copyPreviewBtn.innerText;
+                        copyPreviewBtn.innerText = 'Copied!';
+                        setTimeout(() => { copyPreviewBtn.innerText = 'Copy'; }, 2000);
+                    } else {
+                         showModal('Could not copy text.');
+                    }
+                } catch (err) {
+                    console.error('Copy failed: ', err);
+                    showModal('Could not copy text to clipboard.');
+                }
+
+                document.body.removeChild(textArea);
+            }
         });
         
         // --- Export Functions (Refactored) ---
@@ -1208,30 +1224,46 @@
                 return; // Modal already shown by helper function
             }
 
-            const textArea = document.createElement('textarea');
-            textArea.value = exportText;
-            textArea.style.position = 'fixed';
-            textArea.style.top = '-9999px';
-            textArea.style.left = '-9999px';
-            document.body.appendChild(textArea);
-            textArea.focus();
-            textArea.select();
-
-            try {
-                const successful = document.execCommand('copy');
-                if (successful) {
+            // Use modern Clipboard API with fallback
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(exportText).then(() => {
                     const originalText = copyExportBtn.innerText;
                     copyExportBtn.innerText = 'Copied!';
                     setTimeout(() => { copyExportBtn.innerText = 'Copy to Clipboard'; }, 2000);
-                } else {
-                     showModal('Could not copy text.');
-                }
-            } catch (err) {
-                console.error('Copy export failed: ', err);
-                showModal('Could not copy text to clipboard.');
+                }).catch(err => {
+                    console.error('Clipboard API failed:', err);
+                    fallbackCopy();
+                });
+            } else {
+                fallbackCopy();
             }
 
-            document.body.removeChild(textArea);
+            function fallbackCopy() {
+                const textArea = document.createElement('textarea');
+                textArea.value = exportText;
+                textArea.style.position = 'fixed';
+                textArea.style.top = '-9999px';
+                textArea.style.left = '-9999px';
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+
+                try {
+                    const successful = document.execCommand('copy');
+                    if (successful) {
+                        const originalText = copyExportBtn.innerText;
+                        copyExportBtn.innerText = 'Copied!';
+                        setTimeout(() => { copyExportBtn.innerText = 'Copy to Clipboard'; }, 2000);
+                    } else {
+                         showModal('Could not copy text.');
+                    }
+                } catch (err) {
+                    console.error('Copy export failed: ', err);
+                    showModal('Could not copy text to clipboard.');
+                }
+
+                document.body.removeChild(textArea);
+            }
         });
 
         // --- New Listener for Clear Button ---

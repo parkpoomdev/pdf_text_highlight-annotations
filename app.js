@@ -120,11 +120,34 @@ function escapeForHtml(text) {
 }
 
 /**
- * Copies text to the clipboard using the synchronous execCommand method
- * for maximum compatibility within an iFrame environment.
+ * Copies text to the clipboard using the modern Clipboard API.
+ * Falls back to execCommand for older browsers.
  * @param {string} text 
  */
 function copyToClipboard(text) {
+    console.log('copyToClipboard called with text:', text.substring(0, 100));
+    
+    // Try modern Clipboard API first
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+            console.log('Text copied to clipboard successfully using Clipboard API');
+            showSuccessPopup('Text copied to clipboard!');
+        }).catch(err => {
+            console.error('Clipboard API failed, falling back to execCommand:', err);
+            fallbackCopyToClipboard(text);
+        });
+    } else {
+        // Fallback for older browsers
+        console.log('Clipboard API not available, using fallback');
+        fallbackCopyToClipboard(text);
+    }
+}
+
+/**
+ * Fallback method using execCommand for older browsers.
+ * @param {string} text 
+ */
+function fallbackCopyToClipboard(text) {
     const tempInput = document.createElement('textarea');
     tempInput.style.position = 'fixed';
     tempInput.style.opacity = '0';
@@ -136,6 +159,11 @@ function copyToClipboard(text) {
         const successful = document.execCommand('copy');
         const msg = successful ? 'successful' : 'unsuccessful';
         console.log('Copying text command was ' + msg);
+        if (successful) {
+            showSuccessPopup('Text copied to clipboard!');
+        } else {
+            console.error('execCommand copy returned false');
+        }
     } catch (err) {
         console.error('Oops, unable to copy', err);
     }
@@ -425,8 +453,10 @@ function clearPdfFromStorage() {
  */
 function saveAnnotationsToStorage() {
     try {
-        localStorage.setItem('annotations', JSON.stringify(annotations));
+        const annotationsJson = JSON.stringify(annotations);
+        localStorage.setItem('annotations', annotationsJson);
         localStorage.setItem('annotations_timestamp', Date.now().toString());
+        console.log(`Saved ${annotations.length} annotations to localStorage (${annotationsJson.length} bytes)`);
     } catch (e) {
         console.error('Error saving annotations to localStorage:', e);
     }
@@ -440,9 +470,11 @@ function loadAnnotationsFromStorage() {
         const savedAnnotations = localStorage.getItem('annotations');
         if (savedAnnotations) {
             annotations = JSON.parse(savedAnnotations);
+            console.log(`Loaded ${annotations.length} annotations from localStorage`);
             renderAnnotations();
-            console.log('Annotations loaded from localStorage:', annotations.length);
             return true;
+        } else {
+            console.log('No saved annotations found in localStorage');
         }
     } catch (e) {
         console.error('Error loading annotations from localStorage:', e);
@@ -593,6 +625,11 @@ async function renderPage(pdfDoc, num) {
  * Renders the annotations array to the DOM.
  */
 function renderAnnotations() {
+    if (!commentsList) {
+        console.error('commentsList element not found!');
+        return;
+    }
+    
     commentsList.innerHTML = '';
     
     if (annotations.length === 0) {
@@ -604,6 +641,7 @@ function renderAnnotations() {
     }
 
     exportAllBtn.disabled = false;
+    console.log(`Rendering ${annotations.length} annotations`);
     
     // Sort by page number (ascending), then by id (oldest first) for same page
     const sortedAnnotations = annotations.slice().sort((a, b) => {
@@ -629,7 +667,6 @@ function renderAnnotations() {
         });
 
         const safeTextForDisplay = escapeForHtml(ann.text);
-        const safeTextForClipboard = escapeForOnclick(ann.text);
         
         // Build HTML for replies
         const replyListHtml = ann.replies.length > 0 ? 
@@ -714,8 +751,11 @@ function deleteReply(annotationId, replyIndex) {
     const annotation = annotations.find(ann => ann.id === annotationId);
     if (annotation) {
         // Since this is a minor deletion and not the main block, we skip the modal for brevity
+        const deletedReply = annotation.replies[replyIndex];
         annotation.replies.splice(replyIndex, 1);
+        console.log(`Deleted reply ${replyIndex} from annotation ${annotationId}`);
         renderAnnotations();
+        saveAnnotationsToStorage();
     }
 }
 
@@ -797,6 +837,7 @@ function addReply(annotationId) {
         const annotation = annotations.find(ann => ann.id === annotationId);
         if (annotation) {
             annotation.replies.push(replyText);
+            console.log(`Added reply to annotation ${annotationId}: "${replyText.substring(0, 50)}..."`);
             replyInput.value = '';
             renderAnnotations();
             saveAnnotationsToStorage();
@@ -882,6 +923,7 @@ function triggerAnnotation() {
             rects: currentSelectionMeta?.rects || [],
         };
         annotations.push(newAnnotation);
+        console.log(`Added annotation: "${selectedText.substring(0, 50)}..." (ID: ${newAnnotation.id})`);
         renderAnnotations();
         saveAnnotationsToStorage();
         
@@ -889,6 +931,8 @@ function triggerAnnotation() {
         window.getSelection().removeAllRanges();
         selectedText = "";
         currentSelectionMeta = null;
+    } else {
+        console.log('No text selected for annotation');
     }
 }
 
@@ -900,9 +944,18 @@ let exportTemplateModalSetup = false;
  * @param {number} annotationId - Optional annotation ID for single annotation export
  */
 function showExportTemplateModal(annotationId = null) {
-    if (annotationId === null && annotations.length === 0) return;
+    if (annotationId === null && annotations.length === 0) {
+        console.warn('showExportTemplateModal called but no annotations found');
+        return;
+    }
+    
     const modal = document.getElementById('export-template-modal');
-    if (!modal) return;
+    if (!modal) {
+        console.error('export-template-modal element not found in HTML');
+        return;
+    }
+    
+    console.log(`Showing export template modal for annotation: ${annotationId || 'all'}`);
     
     // Store annotationId for later use
     modal.dataset.annotationId = annotationId || '';
@@ -930,6 +983,8 @@ function showExportTemplateModal(annotationId = null) {
                 e.stopPropagation(); // Prevent event bubbling
                 const template = parseInt(card.dataset.template);
                 const annId = modal.dataset.annotationId;
+                
+                console.log(`Template ${template} selected for annotation: ${annId || 'all'}`);
                 
                 // Show active state - remove from all cards first
                 document.querySelectorAll('.export-template-card').forEach(c => {
@@ -1132,7 +1187,10 @@ function exportAllComments(template) {
  */
 function exportSingleAnnotation(annotationId, template) {
     const annotation = annotations.find(ann => ann.id === annotationId);
-    if (!annotation) return;
+    if (!annotation) {
+        console.error(`Annotation with ID ${annotationId} not found`);
+        return;
+    }
 
     const quoteText = annotation.text.trim();
     const quoteReplies = annotation.replies;
@@ -1196,8 +1254,8 @@ function exportSingleAnnotation(annotationId, template) {
             }
     }
 
+    console.log(`Exporting annotation ${annotationId} using template ${template}. Text: "${quoteText.substring(0, 50)}..."`);
     copyToClipboard(exportText);
-    console.log(`Annotation ${annotationId} exported to clipboard using template ${template}.`);
 }
 
 // --- Highlight Rendering ---

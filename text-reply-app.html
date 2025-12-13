@@ -233,6 +233,12 @@
             margin-bottom: 0.75rem;
             font-size: 15px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            cursor: pointer;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .highlight-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
         }
         /* Color variants for highlight items */
         .highlight-item.color-yellow { background-color: #fff3cd; border-color: #ffeeba; }
@@ -558,9 +564,10 @@
                     .filter(el => !el.classList.contains('translate-reply-th') && !el.classList.contains('translate-reply-en'))
                     .map(el => el.textContent || '');
                 const id = node.dataset.hid || null;
-                items.push({ id, text, color, replies });
+                const position = parseInt(node.dataset.position || '0');
+                items.push({ id, text, color, replies, position });
             });
-            return { v: 1, items };
+            return { v: 2, items }; // Version 2 includes position
         }
 
         function saveState() {
@@ -578,6 +585,10 @@
                 if (!raw) return null;
                 const obj = JSON.parse(raw);
                 if (!obj || !Array.isArray(obj.items)) return null;
+                // Sort by position if available
+                if (obj.v >= 2) {
+                    obj.items.sort((a, b) => (a.position || 0) - (b.position || 0));
+                }
                 return obj.items;
             } catch (e) {
                 return null;
@@ -585,6 +596,7 @@
         }
 
         // --- Tab switching between editor and preview ---
+        const TAB_STORAGE_KEY = 'text_reply_last_tab';
         function switchPanel(panelId) {
             const panels = [editorPane, previewPane];
             panels.forEach(p => {
@@ -594,6 +606,12 @@
             tabButtons.forEach(btn => {
                 btn.classList.toggle('active', btn.dataset.panel === panelId);
             });
+            // Save last tab
+            try {
+                localStorage.setItem(TAB_STORAGE_KEY, panelId);
+            } catch (e) {
+                console.warn('Failed to save tab state', e);
+            }
             if (panelId === 'preview-pane') {
                 updatePreview();
             }
@@ -601,7 +619,9 @@
         tabButtons.forEach(btn => {
             btn.addEventListener('click', () => switchPanel(btn.dataset.panel));
         });
-        switchPanel('editor-pane');
+        // Restore last tab
+        const lastTab = localStorage.getItem(TAB_STORAGE_KEY) || 'editor-pane';
+        switchPanel(lastTab);
 
         // --- Toggle Editor Functionality ---
         toggleEditorBtn.addEventListener('click', () => {
@@ -721,13 +741,165 @@
             if (range.collapsed) return;
             const doc = win.document;
             ensurePreviewStyles(doc);
+            
+            // Get the selected text first
+            const selectedText = range.toString().trim();
+            if (!selectedText) {
+                sel.removeAllRanges();
+                return;
+            }
+            
+            // Find the common ancestor and check for list boundaries
+            const commonAncestor = range.commonAncestorContainer;
+            const startLi = range.startContainer.nodeType === 3 
+                ? range.startContainer.parentElement?.closest('li')
+                : range.startContainer.closest('li');
+            const endLi = range.endContainer.nodeType === 3 
+                ? range.endContainer.parentElement?.closest('li')
+                : range.endContainer.closest('li');
+            
+            // If selection spans multiple list items, restrict to first list item
+            if (startLi && endLi && startLi !== endLi) {
+                const newRange = doc.createRange();
+                newRange.selectNodeContents(startLi);
+                // Find the selected text within this list item
+                const liText = startLi.textContent || '';
+                const selectedInLi = selectedText.substring(0, Math.min(selectedText.length, liText.length));
+                if (selectedInLi && liText.includes(selectedInLi)) {
+                    const startIdx = liText.indexOf(selectedInLi);
+                    // Create a range within the list item
+                    const textNodes = [];
+                    const walker = doc.createTreeWalker(startLi, NodeFilter.SHOW_TEXT, null);
+                    let node, offset = 0;
+                    while (node = walker.nextNode()) {
+                        const nodeLength = node.textContent.length;
+                        if (offset <= startIdx && startIdx < offset + nodeLength) {
+                            // Found the start
+                            newRange.setStart(node, startIdx - offset);
+                            const endIdx = startIdx + selectedInLi.length;
+                            if (endIdx <= offset + nodeLength) {
+                                // End is in same node
+                                newRange.setEnd(node, endIdx - offset);
+                            } else {
+                                // Need to find end node
+                                let endOffset = endIdx - offset - nodeLength;
+                                let endNode = walker.nextNode();
+                                while (endNode && endOffset > endNode.textContent.length) {
+                                    endOffset -= endNode.textContent.length;
+                                    endNode = walker.nextNode();
+                                }
+                                if (endNode) {
+                                    newRange.setEnd(endNode, Math.min(endOffset, endNode.textContent.length));
+                                } else {
+                                    newRange.setEnd(node, nodeLength);
+                                }
+                            }
+                            break;
+                        }
+                        offset += nodeLength;
+                    }
+                    range.setStart(newRange.startContainer, newRange.startOffset);
+                    range.setEnd(newRange.endContainer, newRange.endOffset);
+                } else {
+                    // Can't find text in list item, abort
+                    sel.removeAllRanges();
+                    return;
+                }
+            }
+            
+            // Create wrapper
             const wrapper = doc.createElement('span');
             wrapper.className = `mark-highlight color-${color}`;
             wrapper.setAttribute('data-hid', hid);
-            const contents = range.extractContents();
-            wrapper.appendChild(contents);
-            range.insertNode(wrapper);
-            sel.removeAllRanges();
+            
+            // Try to wrap using surroundContents (most reliable)
+            try {
+                range.surroundContents(wrapper);
+                sel.removeAllRanges();
+                return;
+            } catch (e) {
+                // surroundContents failed - use alternative method
+            }
+            
+            // Alternative: wrap text nodes individually
+            try {
+                const textNodes = [];
+                const walker = doc.createTreeWalker(
+                    commonAncestor,
+                    NodeFilter.SHOW_TEXT,
+                    {
+                        acceptNode: function(node) {
+                            return range.intersectsNode(node) 
+                                ? NodeFilter.FILTER_ACCEPT 
+                                : NodeFilter.FILTER_REJECT;
+                        }
+                    }
+                );
+                
+                let node;
+                while (node = walker.nextNode()) {
+                    textNodes.push(node);
+                }
+                
+                if (textNodes.length === 0) {
+                    sel.removeAllRanges();
+                    return;
+                }
+                
+                // Process each text node
+                const wrappers = [];
+                textNodes.forEach((textNode, idx) => {
+                    const nodeRange = doc.createRange();
+                    const isFirst = idx === 0;
+                    const isLast = idx === textNodes.length - 1;
+                    
+                    if (isFirst && isLast) {
+                        // Single text node
+                        nodeRange.setStart(textNode, 
+                            textNode === range.startContainer ? range.startOffset : 0
+                        );
+                        nodeRange.setEnd(textNode,
+                            textNode === range.endContainer ? range.endOffset : textNode.textContent.length
+                        );
+                    } else if (isFirst) {
+                        nodeRange.setStart(textNode, 
+                            textNode === range.startContainer ? range.startOffset : 0
+                        );
+                        nodeRange.setEnd(textNode, textNode.textContent.length);
+                    } else if (isLast) {
+                        nodeRange.setStart(textNode, 0);
+                        nodeRange.setEnd(textNode,
+                            textNode === range.endContainer ? range.endOffset : textNode.textContent.length
+                        );
+                    } else {
+                        nodeRange.selectNodeContents(textNode);
+                    }
+                    
+                    if (!nodeRange.collapsed) {
+                        const span = doc.createElement('span');
+                        span.className = `mark-highlight color-${color}`;
+                        span.setAttribute('data-hid', hid);
+                        
+                        try {
+                            nodeRange.surroundContents(span);
+                            wrappers.push(span);
+                        } catch (err) {
+                            // If that fails, extract and insert
+                            const frag = nodeRange.extractContents();
+                            if (frag.textContent.trim()) {
+                                span.appendChild(frag);
+                                nodeRange.insertNode(span);
+                                wrappers.push(span);
+                            }
+                        }
+                    }
+                });
+                
+                sel.removeAllRanges();
+            } catch (error) {
+                console.warn('Failed to wrap selection:', error);
+                sel.removeAllRanges();
+            }
         }
 
         function updatePreviewHighlightColor(hid, color){
@@ -785,8 +957,92 @@
             if (!items.length) return;
             items.forEach(item => {
                 const hid = item.id || generateId();
-                highlightFirstMatch(item.text, hid, item.color || 'yellow');
+                if (highlightFirstMatch(item.text, hid, item.color || 'yellow')) {
+                    // Calculate and store position after highlight is created
+                    setTimeout(() => {
+                        const listItem = highlightsList.querySelector(`[data-hid="${hid}"]`);
+                        if (listItem) {
+                            const position = calculateHighlightPosition(hid);
+                            listItem.dataset.position = position || item.position || 0;
+                            sortHighlightsByPosition();
+                        }
+                    }, 100);
+                }
             });
+        }
+
+        // Calculate position of highlight in document (for sorting)
+        function calculateHighlightPosition(hid) {
+            const doc = previewFrame.contentWindow?.document;
+            if (!doc) return 0;
+            
+            const highlight = doc.querySelector(`span.mark-highlight[data-hid="${hid}"]`);
+            if (!highlight) return 0;
+            
+            // Count text nodes before this highlight
+            let position = 0;
+            const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, null);
+            let node;
+            while (node = walker.nextNode()) {
+                if (highlight.contains(node) || highlight === node) {
+                    break;
+                }
+                position += node.textContent.length;
+            }
+            return position;
+        }
+
+        // Sort highlights by position in document
+        function sortHighlightsByPosition() {
+            const items = Array.from(highlightsList.querySelectorAll('.highlight-item'));
+            items.sort((a, b) => {
+                const posA = parseInt(a.dataset.position || '0');
+                const posB = parseInt(b.dataset.position || '0');
+                return posA - posB;
+            });
+            
+            // Re-append in sorted order
+            items.forEach(item => highlightsList.appendChild(item));
+        }
+
+        // Jump to highlight in preview
+        function jumpToHighlight(hid) {
+            const previewWin = previewFrame.contentWindow;
+            if (!previewWin) return;
+            
+            const doc = previewWin.document;
+            const highlight = doc.querySelector(`span.mark-highlight[data-hid="${hid}"]`);
+            if (!highlight) {
+                showModal('Highlight not found in preview. Please switch to Preview tab.');
+                return;
+            }
+            
+            // Switch to preview pane if not already
+            if (previewPane.classList.contains('hidden')) {
+                switchPanel('preview-pane');
+                // Wait for preview to be ready
+                setTimeout(() => jumpToHighlight(hid), 100);
+                return;
+            }
+            
+            // Scroll to highlight
+            highlight.scrollIntoView({ 
+                behavior: 'smooth', 
+                block: 'center',
+                inline: 'nearest'
+            });
+            
+            // Add visual highlight effect
+            const originalBg = highlight.style.backgroundColor;
+            highlight.style.transition = 'background-color 0.3s ease';
+            highlight.style.backgroundColor = 'rgba(250, 204, 21, 0.8)';
+            
+            setTimeout(() => {
+                highlight.style.backgroundColor = originalBg || '';
+                setTimeout(() => {
+                    highlight.style.transition = '';
+                }, 300);
+            }, 2000);
         }
 
 
@@ -953,6 +1209,24 @@
             }
 
             highlightsList.appendChild(listItem);
+            
+            // Calculate and store position after highlight is created in preview
+            // Use setTimeout to ensure highlight is in DOM
+            setTimeout(() => {
+                const position = calculateHighlightPosition(hid);
+                listItem.dataset.position = position;
+                sortHighlightsByPosition();
+            }, 100);
+            
+            // Add click handler to jump to highlight
+            listItem.addEventListener('click', (e) => {
+                // Don't trigger if clicking on buttons or inputs
+                if (e.target.closest('button') || e.target.closest('textarea') || e.target.closest('.color-picker')) {
+                    return;
+                }
+                jumpToHighlight(hid);
+            });
+            
             saveState();
             return hid;
         };
@@ -1026,28 +1300,88 @@
             .catch(error => console.error('CKEditor Error:', error));
 
         appendBtn.addEventListener('click', () => {
-            const previewSelection = previewFrame.contentWindow.getSelection();
-            const selectedText = previewSelection.toString().trim();
+            try {
+                const previewWin = previewFrame.contentWindow;
+                if (!previewWin) {
+                    showModal('Preview frame is not available. Please refresh the page.');
+                    return;
+                }
+                
+                const previewSelection = previewWin.getSelection();
+                if (!previewSelection || previewSelection.rangeCount === 0) {
+                    showModal('Please highlight some text in the preview pane first!');
+                    return;
+                }
+                
+                const selectedText = previewSelection.toString().trim();
+                if (!selectedText) {
+                    showModal('Please highlight some text in the preview pane first!');
+                    return;
+                }
 
-            if (selectedText) {
+                // Add to highlights list first
                 const hid = addHighlightToList(selectedText);
+                
+                // Then wrap the selection in the preview
                 wrapCurrentPreviewSelection(hid, 'yellow');
+                
+                // Clear selection
                 previewSelection.removeAllRanges(); 
+                
+                // Calculate position after a short delay to ensure DOM is updated
+                setTimeout(() => {
+                    const listItem = highlightsList.querySelector(`[data-hid="${hid}"]`);
+                    if (listItem) {
+                        const position = calculateHighlightPosition(hid);
+                        listItem.dataset.position = position;
+                        sortHighlightsByPosition();
+                    }
+                }, 150);
+                
+                // Save state
                 saveState();
-            } else {
-                showModal('Please highlight some text in the preview pane first!');
+            } catch (error) {
+                console.error('Error appending highlight:', error);
+                showModal('An error occurred while adding the highlight. Please try again.');
             }
         });
 
         tooltip.addEventListener('click', () => {
-            const previewSelection = previewFrame.contentWindow.getSelection();
-            const selectedText = previewSelection.toString().trim();
-            if (selectedText) {
+            try {
+                const previewWin = previewFrame.contentWindow;
+                if (!previewWin) return;
+                
+                const previewSelection = previewWin.getSelection();
+                if (!previewSelection || previewSelection.rangeCount === 0) return;
+                
+                const selectedText = previewSelection.toString().trim();
+                if (!selectedText) return;
+                
+                // Add to highlights list
                 const hid = addHighlightToList(selectedText);
+                
+                // Wrap the selection in the preview
                 wrapCurrentPreviewSelection(hid, 'yellow');
+                
+                // Clear selection and hide tooltip
                 previewSelection.removeAllRanges();
                 tooltip.classList.remove('visible');
+                
+                // Calculate position after a short delay to ensure DOM is updated
+                setTimeout(() => {
+                    const listItem = highlightsList.querySelector(`[data-hid="${hid}"]`);
+                    if (listItem) {
+                        const position = calculateHighlightPosition(hid);
+                        listItem.dataset.position = position;
+                        sortHighlightsByPosition();
+                    }
+                }, 150);
+                
+                // Save state
                 saveState();
+            } catch (error) {
+                console.error('Error adding highlight from tooltip:', error);
+                tooltip.classList.remove('visible');
             }
         });
 
@@ -1294,7 +1628,22 @@
             if (!saved || !saved.length) return;
             isRestoring = true;
             try {
-                saved.forEach(item => addHighlightToList(item.text || '', { id: item.id || generateId(), color: item.color || 'yellow', replies: item.replies || [] }));
+                saved.forEach(item => {
+                    const hid = addHighlightToList(item.text || '', { 
+                        id: item.id || generateId(), 
+                        color: item.color || 'yellow', 
+                        replies: item.replies || [] 
+                    });
+                    // Restore position if available
+                    if (item.position !== undefined) {
+                        const listItem = highlightsList.querySelector(`[data-hid="${hid}"]`);
+                        if (listItem) {
+                            listItem.dataset.position = item.position;
+                        }
+                    }
+                });
+                // Sort after all are restored
+                setTimeout(() => sortHighlightsByPosition(), 200);
             } finally {
                 isRestoring = false;
             }

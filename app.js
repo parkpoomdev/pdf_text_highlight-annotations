@@ -57,6 +57,8 @@ const ISO_WIDTH_VARIANTS = [
 let isoResults = [];
 let isoOriginalDataUrl = '';
 
+const SECTION_STORAGE_KEY = 'main_app_last_section';
+
 function switchSection(target) {
     currentSection = target;
     Object.entries(sectionMap).forEach(([name, section]) => {
@@ -66,13 +68,30 @@ function switchSection(target) {
     sectionTabs.forEach(btn => {
         const isActive = btn.dataset.sectionTarget === target;
         btn.classList.toggle('active', isActive);
+        if (isActive) {
+            btn.classList.remove('text-indigo-700');
+            btn.classList.add('text-indigo-800');
+        } else {
+            btn.classList.remove('text-indigo-800');
+            btn.classList.add('text-indigo-700');
+        }
     });
+    
+    // Save last section
+    try {
+        localStorage.setItem(SECTION_STORAGE_KEY, target);
+    } catch (e) {
+        console.warn('Failed to save section state', e);
+    }
 }
 
 sectionTabs.forEach(btn => {
     btn.addEventListener('click', () => switchSection(btn.dataset.sectionTarget));
 });
-switchSection('pdf');
+
+// Restore last section
+const lastSection = localStorage.getItem(SECTION_STORAGE_KEY) || 'pdf';
+switchSection(lastSection);
 
 // --- Confirmation Modal Functions (Replaces alert/confirm) ---
 let modalCallback = null;

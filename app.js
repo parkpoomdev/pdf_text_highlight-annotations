@@ -5,6 +5,7 @@ let pdfDoc = null;
 let selectedText = "";
 let annotations = []; // Array to store all annotations and their replies
 let currentSelectionMeta = null; // { pageNumber, rects: [{x,y,width,height}] }
+let scrollToAnnotationId = null; // which annotation to auto-scroll to after render
 
 const pdfContainer = document.getElementById('pdf-container');
 const commentsList = document.getElementById('comments-list');
@@ -650,6 +651,7 @@ function renderAnnotations() {
     }
     
     commentsList.innerHTML = '';
+    let scrollTargetEl = null;
     
     if (annotations.length === 0) {
         commentsList.innerHTML = '<p id="no-comments" class="text-gray-400 italic text-sm">No annotations added yet. Select text in the PDF to start annotating.</p>';
@@ -754,10 +756,23 @@ function renderAnnotations() {
         `;
 
         commentsList.appendChild(commentDiv);
+        if (scrollToAnnotationId === ann.id) {
+            scrollTargetEl = commentDiv;
+        }
     });
 
     // After rendering side list, render highlights over PDF pages
     renderHighlights();
+
+    // Scroll to the newest/target annotation if set
+    if (scrollTargetEl) {
+        requestAnimationFrame(() => {
+            scrollTargetEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            scrollTargetEl.classList.add('ring-2', 'ring-amber-400');
+            setTimeout(() => scrollTargetEl.classList.remove('ring-2', 'ring-amber-400'), 1200);
+        });
+        scrollToAnnotationId = null;
+    }
 }
 
 /**
@@ -869,6 +884,7 @@ function addReply(annotationId) {
             annotation.replies.push(replyText);
             console.log(`Added reply to annotation ${annotationId}: "${replyText.substring(0, 50)}..."`);
             replyInput.value = '';
+            scrollToAnnotationId = annotationId;
             renderAnnotations();
             saveAnnotationsToStorage();
         }
@@ -953,6 +969,7 @@ function triggerAnnotation() {
             rects: currentSelectionMeta?.rects || [],
         };
         annotations.push(newAnnotation);
+        scrollToAnnotationId = newAnnotation.id;
         console.log(`Added annotation: "${selectedText.substring(0, 50)}..." (ID: ${newAnnotation.id})`);
         renderAnnotations();
         saveAnnotationsToStorage();

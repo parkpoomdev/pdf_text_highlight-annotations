@@ -1,0 +1,21 @@
+{
+  "name": "pdf_text_highlight-annotations",
+  "version": "1.0.0",
+  "description": "แอปนี้รวมเครื่องมือเพิ่มคอมเมนต์และจัดเตรียมหน้าสำหรับพิมพ์ในสไตล์ A4 หนึ่งหน้าแสดง 3 สไลด์ พร้อมช่องจดบันทึกที่วางข้างกัน",
+  "homepage": "https://github.com/parkpoomdev/pdf_text_highlight-annotations#readme",
+  "bugs": {
+    "url": "https://github.com/parkpoomdev/pdf_text_highlight-annotations/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/parkpoomdev/pdf_text_highlight-annotations.git"
+  },
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "app.js",
+  "scripts": {
+    "start": "npx http-server",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  }
+}

@@ -54,7 +54,7 @@
             <p class="mt-2">Loading PDF...</p>
         </div>
 
-        <div id="app-container" class="main-grid grid lg:grid-cols-3 gap-6 h-full w-full">
+        <div id="app-container" class="main-grid grid lg:grid-cols-3 gap-6 h-full w-full min-h-0">
             
             <!-- PDF Viewer Column (Left) -->
             <div class="lg:col-span-2 bg-white rounded-xl shadow-xl overflow-hidden w-full">
@@ -64,8 +64,8 @@
             </div>
 
             <!-- Comments/Annotation Column (Right) -->
-            <div class="lg:col-span-1 flex flex-col h-full">
-                <div class="bg-white rounded-xl shadow-xl p-4 flex flex-col flex-grow">
+            <div class="lg:col-span-1 flex flex-col h-full min-h-0">
+                <div class="bg-white rounded-xl shadow-xl p-4 flex flex-col flex-grow min-h-0">
                     
                     <div class="flex justify-between items-center mb-4 border-b pb-2">
                         <h2 class="text-xl font-bold text-gray-700">Annotations List</h2>
@@ -84,7 +84,7 @@
                     </div>
                     
                     <!-- Display Area for Saved Comments -->
-                    <div id="comments-list" class="flex-grow overflow-y-auto space-y-4">
+                    <div id="comments-list" class="flex-grow overflow-y-auto space-y-4 min-h-0">
                         <p id="no-comments" class="text-gray-400 italic text-sm">No annotations added yet. Select text in the PDF to start annotating.</p>
                     </div>
                 </div>
@@ -514,4 +514,3 @@
     <script src="app.js"></script>
 </body>
 </html>
-

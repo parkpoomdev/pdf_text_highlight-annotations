@@ -55,6 +55,7 @@
             box-shadow: var(--shadow);
             flex: 1; /* Let panes share space equally */
             min-width: 0; /* Prevent flex items from overflowing their container */
+            min-height: 0; /* Allow inner scroll areas to shrink */
             transition: all 0.3s ease; /* Smooth transition for resizing */
         }
         
@@ -217,6 +218,7 @@
             flex-grow: 1;
             overflow-y: auto;
             padding: 1rem;
+            min-height: 0;
         }
         
         #highlights-list {
@@ -239,6 +241,10 @@
         .highlight-item:hover {
             transform: translateY(-2px);
             box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .highlight-item.flash-outline {
+            box-shadow: 0 0 0 3px #f6ad55 inset, 0 4px 10px rgba(0,0,0,0.08);
+            transition: box-shadow 0.3s ease;
         }
         /* Color variants for highlight items */
         .highlight-item.color-yellow { background-color: #fff3cd; border-color: #ffeeba; }
@@ -521,6 +527,7 @@
         const previewFrame = document.getElementById('preview-frame');
         const appendBtn = document.getElementById('append-btn');
         const highlightsList = document.getElementById('highlights-list');
+        let scrollToHid = null; // track which highlight should be auto-focused
         const exportBtn = document.getElementById('export-btn');
         const copyExportBtn = document.getElementById('copy-export-btn'); // New button
         const STORAGE_KEY = 'text_comment_state_v1';
@@ -993,6 +1000,15 @@
         }
 
         // Sort highlights by position in document
+        function focusListItemById(hid) {
+            const listItem = highlightsList.querySelector(`[data-hid="${hid}"]`);
+            if (!listItem) return;
+            listItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            listItem.classList.add('flash-outline');
+            setTimeout(() => listItem.classList.remove('flash-outline'), 1200);
+            scrollToHid = null;
+        }
+
         function sortHighlightsByPosition() {
             const items = Array.from(highlightsList.querySelectorAll('.highlight-item'));
             items.sort((a, b) => {
@@ -1003,6 +1019,10 @@
             
             // Re-append in sorted order
             items.forEach(item => highlightsList.appendChild(item));
+
+            if (scrollToHid) {
+                requestAnimationFrame(() => focusListItemById(scrollToHid));
+            }
         }
 
         // Jump to highlight in preview
@@ -1053,6 +1073,7 @@
             listItem.className = 'highlight-item color-yellow'; // default color
             const hid = options.id || generateId();
             listItem.dataset.hid = hid;
+            scrollToHid = hid;
 
             const textElement = document.createElement('div');
             textElement.className = 'highlight-text';
@@ -1180,6 +1201,7 @@
                         repliesContainer.appendChild(replyElement);
                         replyInput.value = '';
                         replyInput.style.display = 'none';
+                        focusListItemById(listItem.dataset.hid);
                         saveState();
                     }
                 }
@@ -1216,6 +1238,10 @@
                 const position = calculateHighlightPosition(hid);
                 listItem.dataset.position = position;
                 sortHighlightsByPosition();
+
+                if (scrollToHid === hid) {
+                    setTimeout(() => focusListItemById(hid), 50);
+                }
             }, 100);
             
             // Add click handler to jump to highlight

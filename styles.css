@@ -35,6 +35,11 @@ body {
 .page {
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
     margin: 10px auto;
+    position: relative;
+    background-color: white;
+    border-radius: 6px;
+    box-sizing: border-box;
+}
 
 /* Ensure PDF text uses its original embedded fonts.
    Prevent global/Tailwind font overrides from affecting PDF.js text spans. */
@@ -47,13 +52,6 @@ body {
     -webkit-text-fill-color: transparent !important; /* Safari/Chrome: hide glyphs */
     -webkit-text-stroke: 0 transparent !important;
     text-shadow: none !important;
-}
-
-    position: relative;
-    background-color: white;
-    border-radius: 6px;
-    max-width: 100%;
-    box-sizing: border-box;
 }
 
 /* PDF.js Text Layer styling is crucial for selection */
@@ -69,6 +67,27 @@ body {
     z-index: 10; /* Ensures it sits above the canvas */
     opacity: 1; /* Keep selection highlight fully visible */
     pointer-events: auto; /* Keep native drag-select working */
+}
+
+/* Zoom controls styling */
+.zoom-btn {
+    transition: all 0.2s ease;
+    background-color: rgba(255, 255, 255, 0.5);
+}
+
+.zoom-btn:hover:not(:disabled) {
+    transform: scale(1.05);
+    background-color: white;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.zoom-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+#zoom-controls {
+    min-height: 52px;
 }
 
 /* Show custom highlight color when user drag-selects without showing glyphs */

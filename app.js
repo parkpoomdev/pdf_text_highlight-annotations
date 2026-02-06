@@ -4,8 +4,15 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
 let pdfDoc = null;
 let selectedText = "";
 let annotations = []; // Array to store all annotations and their replies
-let currentSelectionMeta = null; // { pageNumber, rects: [{x,y,width,height}] }
+let currentSelectionMeta = null; // { pageNumber, rects, rectsRel, pageWidth, pageHeight }
 let scrollToAnnotationId = null; // which annotation to auto-scroll to after render
+
+// Zoom state
+let pdfZoomScale = 1.0; // 1.0 = fit-to-width baseline; user zoom is a multiplier
+const ZOOM_STEP = 0.15;
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 3.0;
+let resizeListenerAttached = false;
 
 const pdfContainer = document.getElementById('pdf-container');
 const commentsList = document.getElementById('comments-list');
@@ -60,6 +67,47 @@ let isoOriginalDataUrl = '';
 
 const SECTION_STORAGE_KEY = 'main_app_last_section';
 
+function setZoomControlsEnabled(enabled) {
+    ['zoom-in-btn', 'zoom-out-btn', 'reset-zoom-btn'].forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (enabled) {
+            el.removeAttribute('disabled');
+        } else {
+            el.setAttribute('disabled', 'true');
+        }
+    });
+}
+
+function updateZoomUI() {
+    const zoomLevel = document.getElementById('zoom-level');
+    if (zoomLevel) {
+        zoomLevel.textContent = `${Math.round(pdfZoomScale * 100)}%`;
+    }
+    if (pdfDoc) {
+        renderPDF(); // re-render at new zoom level using existing pdfDoc
+    }
+}
+
+// Zoom functions exposed globally for onclick handlers
+window.zoomIn = function () {
+    if (!pdfDoc) return;
+    pdfZoomScale = Math.min(pdfZoomScale + ZOOM_STEP, MAX_ZOOM);
+    updateZoomUI();
+};
+
+window.zoomOut = function () {
+    if (!pdfDoc) return;
+    pdfZoomScale = Math.max(pdfZoomScale - ZOOM_STEP, MIN_ZOOM);
+    updateZoomUI();
+};
+
+window.resetZoom = function () {
+    if (!pdfDoc) return;
+    pdfZoomScale = 1.0;
+    updateZoomUI();
+};
+
 function switchSection(target) {
     currentSection = target;
     Object.entries(sectionMap).forEach(([name, section]) => {
@@ -93,6 +141,24 @@ sectionTabs.forEach(btn => {
 // Restore last section
 const lastSection = localStorage.getItem(SECTION_STORAGE_KEY) || 'pdf';
 switchSection(lastSection);
+
+// Keyboard shortcuts for zoom (Ctrl/Cmd + +/-/0)
+document.addEventListener('keydown', (e) => {
+    if (!pdfDoc) return;
+    if (!(e.ctrlKey || e.metaKey)) return;
+    const tag = (e.target && e.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea') return; // avoid interfering while typing
+    if (e.key === '=' || e.key === '+') {
+        e.preventDefault();
+        window.zoomIn();
+    } else if (e.key === '-' || e.key === '_') {
+        e.preventDefault();
+        window.zoomOut();
+    } else if (e.key === '0') {
+        e.preventDefault();
+        window.resetZoom();
+    }
+});
 
 // --- Confirmation Modal Functions (Replaces alert/confirm) ---
 let modalCallback = null;
@@ -246,6 +312,10 @@ function processPdfFile(file) {
         console.warn('Dropped file is not a PDF.');
         return;
     }
+    pdfZoomScale = 1.0;
+    setZoomControlsEnabled(true);
+    updateZoomUI();
+
     appContainer.style.display = 'grid';
     pdfContainer.innerHTML = '';
     loader.classList.remove('hidden');
@@ -503,10 +573,15 @@ function loadAnnotationsFromStorage() {
 }
 
 // Replaced: renderPDF was corrupted by nested functions. Provide clean implementation.
-async function renderPDF(pdfData) {
+async function renderPDF(pdfData = null) {
     try {
-        pdfDoc = await pdfjsLib.getDocument({ data: pdfData }).promise;
+        if (pdfData) {
+            pdfDoc = await pdfjsLib.getDocument({ data: pdfData }).promise;
+        }
+        if (!pdfDoc) return;
+
         const numPages = pdfDoc.numPages;
+        pdfContainer.innerHTML = '';
         for (let i = 1; i <= numPages; i++) {
             await renderPage(pdfDoc, i);
         }
@@ -517,26 +592,20 @@ async function renderPDF(pdfData) {
         document.addEventListener('mousedown', checkHideFloatingMenu);
         
         // Add resize handler to recalculate page scales
-        let resizeTimeout;
-        window.addEventListener('resize', () => {
-            clearTimeout(resizeTimeout);
-            resizeTimeout = setTimeout(async () => {
-                if (pdfDoc && pdfContainer) {
-                    const pages = pdfContainer.querySelectorAll('.page');
-                    for (const pageWrapper of pages) {
-                        const pageNum = parseInt(pageWrapper.dataset.pageNumber);
-                        if (pageNum) {
-                            // Remove old page
-                            pageWrapper.remove();
-                            // Re-render with new scale
-                            await renderPage(pdfDoc, pageNum);
-                        }
+        if (!resizeListenerAttached) {
+            resizeListenerAttached = true;
+            let resizeTimeout;
+            window.addEventListener('resize', () => {
+                clearTimeout(resizeTimeout);
+                resizeTimeout = setTimeout(() => {
+                    if (pdfDoc && pdfContainer) {
+                        renderPDF(); // re-render with current zoom and container size
                     }
-                    // Re-render highlights after resize
-                    renderHighlights();
-                }
-            }, 300);
-        });
+                }, 300);
+            });
+        }
+
+        renderAnnotations(); // refresh highlights with new scaling
     } catch (error) {
         console.error('Error rendering PDF:', error);
         loader.classList.add('hidden');
@@ -600,15 +669,21 @@ async function renderPage(pdfDoc, num) {
     const pdfContainer = document.getElementById('pdf-container');
     const containerWidth = pdfContainer ? pdfContainer.clientWidth - 40 : 800; // Subtract padding
     const baseViewport = page.getViewport({ scale: 1.0 });
-    const scale = Math.min(1.5, containerWidth / baseViewport.width);
-    const viewport = page.getViewport({ scale: scale });
+    const baseScale = Math.min(1.5, containerWidth / baseViewport.width);
+    const effectiveScale = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, baseScale * pdfZoomScale));
+    const viewport = page.getViewport({ scale: effectiveScale });
 
     const pageWrapper = document.createElement('div');
     pageWrapper.className = 'page relative mx-auto my-4';
     pageWrapper.style.width = `${viewport.width}px`;
-    pageWrapper.style.maxWidth = '100%';
     pageWrapper.style.height = `${viewport.height}px`;
     pageWrapper.dataset.pageNumber = String(num);
+    pageWrapper.dataset.baseWidth = String(baseViewport.width);
+    pageWrapper.dataset.baseHeight = String(baseViewport.height);
+    pageWrapper.dataset.effectiveScale = String(effectiveScale);
+    pageWrapper.dataset.baseWidth = String(baseViewport.width);
+    pageWrapper.dataset.baseHeight = String(baseViewport.height);
+    pageWrapper.dataset.effectiveScale = String(effectiveScale);
     
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d');
@@ -938,9 +1013,38 @@ function handleTextSelection() {
                     height: r.height,
                 })).filter(r => r.width > 0 && r.height > 0);
 
+                const baseWidth = parseFloat(pageWrapper.dataset.baseWidth || `${pageRect.width}`);
+                const baseHeight = parseFloat(pageWrapper.dataset.baseHeight || `${pageRect.height}`);
+                const scaleCurrent = baseWidth ? pageRect.width / baseWidth : 1;
+
+                // Normalize to current page size (percentage)
+                const rectsRel = rects.map(r => ({
+                    x: r.x / pageRect.width,
+                    y: r.y / pageRect.height,
+                    width: r.width / pageRect.width,
+                    height: r.height / pageRect.height,
+                }));
+
+                // Normalize to PDF-space units (base viewport scale 1)
+                const rectsPdf = rects.map(r => ({
+                    x: r.x / scaleCurrent,
+                    y: r.y / scaleCurrent,
+                    width: r.width / scaleCurrent,
+                    height: r.height / scaleCurrent,
+                }));
+
                 const pageNumber = Number(pageWrapper.dataset.pageNumber || '0');
                 if (rects.length && pageNumber > 0) {
-                    currentSelectionMeta = { pageNumber, rects };
+                    currentSelectionMeta = { 
+                        pageNumber, 
+                        rects,
+                        rectsRel,
+                        rectsPdf,
+                        pageWidth: pageRect.width,
+                        pageHeight: pageRect.height,
+                        baseWidth,
+                        baseHeight,
+                    };
                 }
             }
 
@@ -967,6 +1071,12 @@ function triggerAnnotation() {
             replies: [],
             pageNumber: currentSelectionMeta?.pageNumber || null,
             rects: currentSelectionMeta?.rects || [],
+            rectsRel: currentSelectionMeta?.rectsRel || [],
+            rectsPdf: currentSelectionMeta?.rectsPdf || [],
+            pageWidth: currentSelectionMeta?.pageWidth || null,
+            pageHeight: currentSelectionMeta?.pageHeight || null,
+            baseWidth: currentSelectionMeta?.baseWidth || null,
+            baseHeight: currentSelectionMeta?.baseHeight || null,
         };
         annotations.push(newAnnotation);
         scrollToAnnotationId = newAnnotation.id;
@@ -1319,14 +1429,59 @@ function renderHighlights() {
         if (!ann.pageNumber || !Array.isArray(ann.rects)) return;
         const pageLayer = document.querySelector(`.page[data-page-number="${ann.pageNumber}"] .highlightLayer`);
         if (!pageLayer) return;
-        ann.rects.forEach(r => {
+        const pageWrapper = pageLayer.closest('.page');
+        const pageWidth = pageWrapper ? pageWrapper.clientWidth : null;
+        const pageHeight = pageWrapper ? pageWrapper.clientHeight : null;
+        const baseWidth = pageWrapper ? parseFloat(pageWrapper.dataset.baseWidth || '0') : ann.baseWidth || ann.pageWidth || pageWidth;
+        const baseHeight = pageWrapper ? parseFloat(pageWrapper.dataset.baseHeight || '0') : ann.baseHeight || ann.pageHeight || pageHeight;
+
+        // Backfill missing base sizes for older annotations
+        if ((!ann.pageWidth || !ann.pageHeight) && pageWidth && pageHeight) {
+            ann.pageWidth = pageWidth;
+            ann.pageHeight = pageHeight;
+            saveAnnotationsToStorage();
+        }
+
+        const scaleX = ann.pageWidth && pageWidth ? pageWidth / ann.pageWidth : 1;
+        const scaleY = ann.pageHeight && pageHeight ? pageHeight / ann.pageHeight : 1;
+        const scalePdf = baseWidth && pageWidth ? pageWidth / baseWidth : scaleX;
+
+        ann.rects.forEach((r, idx) => {
             const box = document.createElement('div');
             box.className = 'highlightBox';
             box.dataset.annotationId = ann.id;
-            box.style.left = `${r.x}px`;
-            box.style.top = `${r.y}px`;
-            box.style.width = `${r.width}px`;
-            box.style.height = `${r.height}px`;
+            // Prefer normalized rects for robust scaling
+            let rel = ann.rectsRel && ann.rectsRel[idx];
+            // Backfill normalized rects for legacy annotations
+            if (!rel && pageWidth && pageHeight) {
+                rel = {
+                    x: (r.x || 0) / (ann.pageWidth || pageWidth),
+                    y: (r.y || 0) / (ann.pageHeight || pageHeight),
+                    width: (r.width || 0) / (ann.pageWidth || pageWidth),
+                    height: (r.height || 0) / (ann.pageHeight || pageHeight),
+                };
+                ann.rectsRel = ann.rectsRel || [];
+                ann.rectsRel[idx] = rel;
+                saveAnnotationsToStorage();
+            }
+            const pdfRect = ann.rectsPdf && ann.rectsPdf[idx];
+
+            if (pdfRect && scalePdf && baseWidth) {
+                box.style.left = `${pdfRect.x * scalePdf}px`;
+                box.style.top = `${pdfRect.y * scalePdf}px`;
+                box.style.width = `${pdfRect.width * scalePdf}px`;
+                box.style.height = `${pdfRect.height * scalePdf}px`;
+            } else if (rel && pageWidth && pageHeight) {
+                box.style.left = `${rel.x * pageWidth}px`;
+                box.style.top = `${rel.y * pageHeight}px`;
+                box.style.width = `${rel.width * pageWidth}px`;
+                box.style.height = `${rel.height * pageHeight}px`;
+            } else {
+                box.style.left = `${r.x * scaleX}px`;
+                box.style.top = `${r.y * scaleY}px`;
+                box.style.width = `${r.width * scaleX}px`;
+                box.style.height = `${r.height * scaleY}px`;
+            }
             pageLayer.appendChild(box);
         });
     });
@@ -1348,24 +1503,24 @@ function scrollToHighlight(annotationId) {
     if (pdfContainer) {
         // Calculate the position to scroll to (center of the first highlight rect)
         const firstRect = annotation.rects && annotation.rects[0];
-        if (firstRect) {
-            const pageRect = pageWrapper.getBoundingClientRect();
-            const containerRect = pdfContainer.getBoundingClientRect();
-            const scrollTop = pdfContainer.scrollTop;
-            const targetY = scrollTop + pageRect.top - containerRect.top + firstRect.y + (firstRect.height / 2) - (containerRect.height / 2);
-            
-            pdfContainer.scrollTo({
-                top: Math.max(0, targetY),
-                behavior: 'smooth'
-            });
-        } else {
-            // If no rects, just scroll to the page
-            pageWrapper.scrollIntoView({ 
-                behavior: 'smooth', 
-                block: 'center',
-                inline: 'nearest'
-            });
-        }
+        const pageRect = pageWrapper.getBoundingClientRect();
+        const containerRect = pdfContainer.getBoundingClientRect();
+        const scrollTop = pdfContainer.scrollTop;
+
+        // Use normalized rect if available for accurate positioning after zoom
+        const rel = annotation.rectsRel && annotation.rectsRel[0];
+        const targetYCenter = rel && pageWrapper.clientHeight
+            ? rel.y * pageWrapper.clientHeight + (rel.height * pageWrapper.clientHeight) / 2
+            : firstRect
+                ? firstRect.y + firstRect.height / 2
+                : pageWrapper.clientHeight / 2;
+
+        const targetY = scrollTop + pageRect.top - containerRect.top + targetYCenter - (containerRect.height / 2);
+        
+        pdfContainer.scrollTo({
+            top: Math.max(0, targetY),
+            behavior: 'smooth'
+        });
     }
 
     // Add a visual pulse effect to the highlight
@@ -1814,6 +1969,9 @@ clearIsometricResults();
             if (pdfContainer) pdfContainer.innerHTML = '';
             if (loader) loader.classList.remove('hidden');
             try {
+                pdfZoomScale = 1.0;
+                setZoomControlsEnabled(true);
+                updateZoomUI();
                 await renderPDF(savedPdf.data);
             } catch (err) {
                 console.error('Error restoring PDF:', err);
